@@ -28,6 +28,7 @@ class Node:
     counter = 0
     branch = [0]
     bounded = [set()]
+    names = [set()]
     assumptions = []
     level = 0
     history = {}
@@ -165,10 +166,12 @@ class Node:
             Node.branch.append(0)
             Node.bounded.append(set())
             Node.assumptions.append(self)
+            Node.names.append(set())
         else:
             Node.branch[Node.level] += 1
             Node.bounded[Node.level] = set()
             Node.assumptions[Node.level] = self
+            Node.names[Node.level] = set()
         Node.bounded[Node.level] |= self.free
         return self.accept()
 
@@ -189,9 +192,29 @@ class Node:
                 arguments[key] = value.substitute(value, old, new)
             return Node(self.type_, **arguments)
 
+    # define property
+    # All(x, All(y, ... P(x, y, ...) iff Q(x, y, ...)))
+    # where Q is a formula, but P is a newly defined atomic
+    def define_property(self, name):
+        for names in Node.names:
+            assert not name in names
+        Node.names[Node.level].add(name)
+
+        cursor = self
+        while cursor.type_ == TYPE_ALL:
+            cursor = cursor.statement
+        assert cursor.type_ == TYPE_IFF
+        assert cursor.left.type_ == TYPE_PROPERTY
+        assert cursor.left.name == name
+        return self.accept()
+
     # define function
     # All(x, P(x, f(x))).functionize("your_function_name", All(x, UniquelyExist(y, P(x, y))))
-    def functionize(self, name, reason):
+    def define_function(self, name, reason):
+        for names in Node.names:
+            assert not name in names
+        Node.names[Node.level].add(name)
+        
         reason = Node.history[reason]
         assert reason.is_proved()
         arguments = []
@@ -378,7 +401,7 @@ class Node:
     # 
     # "define" returns the following proved:
     # UniquelyExist(C, All(x, (x in C) iff UniquelyExist(a, UniquelyExist(b, (x == Tuple(a,b)) and Set(a) and Set(b) and P(a, b)))))
-    def define(self, output, element, inputs, statement):
+    def define_class(self, output, element, inputs, statement):
         assert statement.is_sentence()
         for input in inputs:
             assert input.type_ == TYPE_VARIABLE
@@ -391,7 +414,7 @@ class Node:
         statement = Node(TYPE_AND, Node(TYPE_PROPERTY, name = "equal", children = [element, Tuple(inputs)]), statement)
         for input in reversed(inputs):
             statement = Node(TYPE_UNIQUELY_EXIST, bound = input, statement = statement)
-        statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "in", children = [element, output]), right = statement)
+        statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "membership", children = [element, output]), right = statement)
         statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = statement))
         assert hash(self) == hash(statement)
         return self.accept()
@@ -534,3 +557,7 @@ def Tuple(*arguments):
 
 
 # PROOF START!
+
+def in_(x, A):
+    return Node(TYPE_PROPERTY, name = "membership", children = [x, A])
+
