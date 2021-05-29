@@ -37,6 +37,7 @@ BY_UNIQUE = 21
 PUT = 22
 REPLACE = 23
 
+callbacks = {}
 
 class Node:
     counter = 0
@@ -608,7 +609,7 @@ class Node:
             elif inference == REPLACE:
                 return self.replace(*arguments).save(save_as)
             else:
-                assert False
+                return callbacks[inference](*arguments).save(save_as)
 
     def __eq__(self, B): # reserved!
         if self.is_sentence():
@@ -649,15 +650,166 @@ def Tuple(*arguments):
         return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
 
 
+# used in theorems
+a_ = New()
+b_ = New()
+c_ = New()
+d_ = New()
+e_ = New()
+f_ = New()
+g_ = New()
+h_ = New()
+i_ = New()
+j_ = New()
+k_ = New()
+l_ = New()
+m_ = New()
+n_ = New()
+o_ = New()
+p_ = New()
+q_ = New()
+r_ = New()
+s_ = New()
+t_ = New()
+u_ = New()
+v_ = New()
+w_ = New()
+x_ = New()
+y_ = New()
+z_ = New()
+A_ = New()
+B_ = New()
+C_ = New()
+D_ = New()
+E_ = New()
+F_ = New()
+G_ = New()
+H_ = New()
+I_ = New()
+J_ = New()
+K_ = New()
+L_ = New()
+M_ = New()
+N_ = New()
+O_ = New()
+P_ = New()
+Q_ = New()
+R_ = New()
+S_ = New()
+T_ = New()
+U_ = New()
+V_ = New()
+W_ = New()
+X_ = New()
+Y_ = New()
+Z_ = New()
 
-a = New()
-b = New()
-p = New()
-x = New()
-y = New()
-A = New()
-B = New()
-C = New()
+# used in proofs
+def clear():
+    global a
+    a = New()
+    global b
+    b = New()
+    global c
+    c = New()
+    global d
+    d = New()
+    global e
+    e = New()
+    global f
+    f = New()
+    global g
+    g = New()
+    global h
+    h = New()
+    global i
+    i = New()
+    global j
+    j = New()
+    global k
+    k = New()
+    global l
+    l = New()
+    global m
+    m = New()
+    global n
+    n = New()
+    global o
+    o = New()
+    global p
+    p = New()
+    global q
+    q = New()
+    global r
+    r = New()
+    global s
+    s = New()
+    global t
+    t = New()
+    global u
+    u = New()
+    global v
+    v = New()
+    global w
+    w = New()
+    global x
+    x = New()
+    global y
+    y = New()
+    global z
+    z = New()
+    global A
+    A = New()
+    global B
+    B = New()
+    global C
+    C = New()
+    global D
+    D = New()
+    global E
+    E = New()
+    global F
+    F = New()
+    global G
+    G = New()
+    global H
+    H = New()
+    global I
+    I = New()
+    global J
+    J = New()
+    global K
+    K = New()
+    global L
+    L = New()
+    global M
+    M = New()
+    global N
+    N = New()
+    global O
+    O = New()
+    global P
+    P = New()
+    global Q
+    Q = New()
+    global R
+    R = New()
+    global S
+    S = New()
+    global T
+    T = New()
+    global U
+    U = New()
+    global V
+    V = New()
+    global W
+    W = New()
+    global X
+    X = New()
+    global Y
+    Y = New()
+    global Z
+    Z = New()
 
 # PROOF START!
 
@@ -668,4 +820,7 @@ def in_(x, A):
 # definition of set
 def Set(a):
     return Node(TYPE_PROPERTY, name = "set", children = [a])
-(All(x, Set(x) == Exist(C, x *in_* C))) @ ("set", DEFINE_PROPERTY, "set",)
+
+clear()
+(All(x_, Set(x_) == Exist(C_, x_ *in_* C_))) @ ("set", DEFINE_PROPERTY, "set")
+
