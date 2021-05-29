@@ -396,19 +396,34 @@ class Node:
         assert hash(self) == hash(statement)
         return self.accept()
 
-    def remove_exist(self):
-        if self.type_ == TYPE_EXIST:
-            return Node(TYPE_NOT, body = Node(TYPE_ALL, bound = self.bound, statement = Node(TYPE_NOT, body = self.statement.remove_exist())))
-        else:
-            return self
-
     # duality
-    # not all == exist not
-    # not exist == not all
-    def dual(self, reason):
-        reason = Node.history[reason]
-        assert reason.is_proved()
-        assert hash(self.remove_exist(), reason.remove_exist())
+    # not All(x, P(x)) iff Exist not(x, P(x))
+    # not Exist(x, P(x)) iff All not(x, P(x))
+    def dual(self):
+        assert self.type_ == TYPE_IFF
+        if self.left.type_ == TYPE_NOT:
+            if self.left.body.type_ == TYPE_ALL:
+                assert self.right.type_ == TYPE_EXIST
+                assert self.right.statement.type_ == TYPE_NOT
+            elif self.left.body.type_ == TYPE_EXIST:
+                assert self.right.type_ == TYPE_ALL
+                assert self.right.statement.type_ == TYPE_NOT
+            else:
+                assert False
+            assert self.left.body.bound.counter == self.right.bound.counter
+            assert hash(self.left.body.statement) == hash(self.right.statement.body)
+        elif self.right.type_ == TYPE_NOT:
+            if self.right.body.type_ == TYPE_ALL:
+                assert self.left.type_ == TYPE_EXIST
+                assert self.left.statement.type_ == TYPE_NOT
+            elif self.right.body.type_ == TYPE_EXIST:
+                assert self.left.type_ == TYPE_ALL
+                assert self.left.statement.type_ == TYPE_NOT
+            else:
+                assert False
+        else:
+            assert False
+
         return self.accept()
 
 
