@@ -29,7 +29,7 @@ class Node:
     branch = [0]
     bounded = [set()]
     names = [set()]
-    assumptions = []
+    assumptions = [None]
     level = 0
     history = {}
     last = None
@@ -57,7 +57,7 @@ class Node:
             self.free = self.statement.free.copy()
             self.bounded = self.statement.bounded.copy()
             assert self.bound.counter in self.free
-            assert not self.bound.counter not in self.bounded
+            assert not self.bound.counter in self.bounded
             self.free.remove(self.bound.counter)
             self.bounded.add(self.bound.counter)
         elif type_ == TYPE_NOT:
@@ -73,7 +73,7 @@ class Node:
             self.assumption = arguments["assumption"]
             self.conclusion = arguments["conclusion"]
             self.free = self.assumption.free | self.conclusion.free
-            self.bounded = self.bounded.bounded | self.conclusion.bounded
+            self.bounded = self.assumption.bounded | self.conclusion.bounded
         elif type_ in [TYPE_TRUE, TYPE_FALSE]:
             pass
         else:
@@ -84,9 +84,15 @@ class Node:
         self.operator = None
 
         hashing = [self.type_]
+        if self.type_ == TYPE_VARIABLE:
+            hashing.append(self.counter)
         for key, value in self.arguments.items():
             hashing.append(key)
-            hashing.append(hash(value))
+            if isinstance(value, list):
+                for element in value:
+                    hashing.append(hash(element))
+            else:
+                hashing.append(hash(value))
         self.hash = hash(tuple(hashing))
 
     def is_fresh(self):
@@ -114,12 +120,8 @@ class Node:
         for level in range(0, len(self.branch)):
             if self.branch[level] != Node.branch[level]:
                 return False
-        Node.last = self
         return True
 
-    def is_closed(self):
-        assert self.is_sentence()
-        return not self.free
 
     # when you just assume an axiom:
     # your_axiom.accept()
@@ -127,12 +129,11 @@ class Node:
     # the axiom must be closed
     def accept(self):
         assert self.is_sentence()
-        if Node.level == 0:
-            assert self.is_closed()
-        self.branch = Node.branch.copy()
+        self.branch = Node.branch[ : Node.level]
         for variable in self.free | self.bounded:
             if variable in Node.fresh:
                 Node.fresh.remove(variable)
+        Node.last = self
         return self
     
     # to save a sentence:
@@ -176,7 +177,7 @@ class Node:
         return self.accept()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        Node.last = Node(TYPE_IMPLY, assumption = Node.assumptions[Node.level], conclusion = Node.last).accept()
+        Node(TYPE_IMPLY, assumption = Node.assumptions[Node.level], conclusion = Node.last).accept()
         Node.level -= 1
 
     def substitute(self, old, new):
@@ -189,7 +190,12 @@ class Node:
         else:
             arguments = {}
             for key, value in self.arguments.items():
-                arguments[key] = value.substitute(value, old, new)
+                if isinstance(value, list):
+                    arguments[key] = [element.substitute(old, new) for element in value]
+                elif isinstance(value, Node):
+                    arguments[key] = value.substitute(old, new)
+                else:
+                    arguments[key] = value
             return Node(self.type_, **arguments)
 
     # define property
@@ -209,12 +215,13 @@ class Node:
         return self.accept()
 
     # define function
-    # All(x, P(x, f(x))).functionize("your_function_name", All(x, UniquelyExist(y, P(x, y))))
+    # All(x, Q(x) >> UniquelyExist(y, P(x, y))).by(...).save(number)
+    # All(x, Q(x) >> P(x, f(x))).functionize("your_function_name", number)
     def define_function(self, name, reason):
         for names in Node.names:
             assert not name in names
         Node.names[Node.level].add(name)
-        
+
         reason = Node.history[reason]
         assert reason.is_proved()
         arguments = []
@@ -222,8 +229,17 @@ class Node:
         while cursor.type_ == TYPE_ALL:
             arguments.append(cursor.bound)
             cursor = cursor.statement
-        assert cursor.type_ == TYPE_UNIQUELY_EXIST
-        assert hash(self) == hash(cursor.statement.substitute(cursor.bound, Node(TYPE_FUNCTION, name = name, children = arguments)))
+        if cursor.type_ == TYPE_IMPLY:
+            assumption = cursor.assumption
+            cursor = cursor.conclusion
+            assert cursor.type_ == TYPE_UNIQUELY_EXIST
+            definition = Node(TYPE_IMPLY, assumption = assumption, conclusion = cursor.statement.substitute(cursor.bound, Node(TYPE_FUNCTION, name = name, children = arguments)))
+        else:
+            assert cursor.type_ == TYPE_UNIQUELY_EXIST
+            definition = cursor.statement.substitute(cursor.bound, Node(TYPE_FUNCTION, name = name, children = arguments))
+        for argument in reversed(arguments):
+            definition = Node(TYPE_ALL, bound = argument, statement = definition)
+        assert hash(self) == hash(definition)
         return self.accept()
 
     # prove Exist(x, P(x)) from t & P(t)
@@ -232,7 +248,7 @@ class Node:
         assert reason.is_proved()
         assert not term.is_sentence()
         assert self.type_ == TYPE_EXIST
-        assert hash(Node(TYPE_EXIST, bound = self.bound, statement = self.statement.substitute(self.bound, term))) == hash(reason)
+        assert hash(self.statement.substitute(self.bound, term)) == hash(reason)
         return self.accept()
 
     # prove P(c) from c & Exist(x, P(x))
@@ -242,7 +258,7 @@ class Node:
         assert reason.is_proved()
         assert reason.type_ in [TYPE_EXIST, TYPE_UNIQUELY_EXIST]
         assert variable.is_fresh()
-        variable.defined_by = self
+        variable.defined_by = reason
         Node.bounded[Node.level].add(variable.counter)
         assert hash(self) == hash(reason.statement.substitute(reason.bound, variable))
         return self.accept()
@@ -253,19 +269,18 @@ class Node:
     # # ... some proofs
     # (a == b).save(number)
     # UniquelyExist(x, P(x)).unique(number)
-    def unique(self, reason):
+    def claim_unique(self, reason):
         reason = Node.history[reason]
         assert reason.is_proved()
         assert reason.type_ == TYPE_PROPERTY
         assert reason.name == "equal"
-        assert hash(self.children[0].defined_by) == hash(self.children[1].defined_by)
-        defined_by = self.children[0].defined_by
+        assert hash(reason.children[0].defined_by) == hash(reason.children[1].defined_by)
         assert self.type_ == TYPE_UNIQUELY_EXIST
-        assert hash(Node(TYPE_EXIST, self.arguments)) == hash(defined_by)
+        assert hash(Node(TYPE_EXIST, **self.arguments)) == hash(reason.children[0].defined_by)
         return self.accept()
 
     # prove (a == b) from UniquelyExist(x, P(x)), P(a) & P(b)
-    def same(self, reason, left, right):
+    def by_unique(self, reason, left, right):
         reason = Node.history[reason]
         left = Node.history[left]
         right = Node.history[right]
@@ -279,8 +294,8 @@ class Node:
         assert hash(reason.statement.substitute(reason.bound, self.children[1])) == hash(right)
         return self.accept()
     
-    # prove P(a) from All(x, P(x))
-    def put(self, reason, replace_by):
+    # prove P(t) from All(x, P(x))
+    def put(self, replace_by, reason):
         reason = Node.history[reason]
         assert reason.is_proved()
         assert reason.type_ == TYPE_ALL
@@ -291,11 +306,11 @@ class Node:
     # generalization
     # NOT applicable to BOUNDED variables,
     # which is a let-variable or a free variable of any assumption.
-    def generalize(self, reason, bound):
+    def generalize(self, reason):
         reason = Node.history[reason]
-        assert reason.is_proved
-        assert bound.is_generalizable()
-        assert hash(self) == hash(Node(TYPE_ALL, bound= bound, statement = self))
+        assert reason.is_proved()
+        assert self.bound.is_generalizable()
+        assert hash(self) == hash(Node(TYPE_ALL, bound = self.bound, statement = reason))
         return self.accept()
 
     def logical_form(self, mapping):
@@ -303,7 +318,7 @@ class Node:
             arguments = {}
             for key, value in self.arguments.items():
                 arguments[key] = value.logical_form(mapping)
-            return Node(self.type_, arguments)
+            return Node(self.type_, **arguments)
         else:
             if mapping.get(hash(self)) == None:
                 mapping[hash(self)] = len(mapping)
@@ -315,13 +330,13 @@ class Node:
         elif self.type_ == TYPE_NOT:
             return not self.body.logical_evaluate(truth_assign)
         elif self.type_ == TYPE_AND:
-            return self.left.logical_evluate(truth_assign) and self.right.logical_evaluate(truth_assign)
+            return self.left.logical_evaluate(truth_assign) and self.right.logical_evaluate(truth_assign)
         elif self.type_ == TYPE_OR:
-            return self.left.logical_evluate(truth_assign) or self.right.logical_evaluate(truth_assign)
+            return self.left.logical_evaluate(truth_assign) or self.right.logical_evaluate(truth_assign)
         elif self.type_ == TYPE_IMPLY:
-            return self.conclusion.logical_evluate(truth_assign) or not self.assumption.logical_evaluate(truth_assign)
+            return self.conclusion.logical_evaluate(truth_assign) or not self.assumption.logical_evaluate(truth_assign)
         elif self.type_ == TYPE_IFF:
-            return self.left.logical_evluate(truth_assign) == self.right.logical_evaluate(truth_assign)
+            return self.left.logical_evaluate(truth_assign) == self.right.logical_evaluate(truth_assign)
         elif self.type_ == TYPE_TRUE:
             return True
         elif self.type_ == TYPE_FALSE:
@@ -332,10 +347,11 @@ class Node:
     # this namely deduces a tautological result from the given reasons
     def tautology(self, *reasons):
         mapping = {}
-        for index, reason in enumerate(reasons):
+        logical_forms = []
+        for reason in reasons:
             reason = Node.history[reason]
             assert reason.is_proved()
-            reasons[index] = reason.logical_form(mapping)
+            logical_forms.append(reason.logical_form(mapping))
         target = self.logical_form(mapping)
         case_number = 2 ** len(mapping)
         truth_assign = []
@@ -343,7 +359,7 @@ class Node:
             for assign_index in range(0, len(mapping)):
                 truth_assign.append(bool(case_index & (1 << assign_index)))
             consider = True
-            for reason in reasons:
+            for reason in logical_forms:
                 if not reason.logical_evaluate(truth_assign):
                     consider = False
                     break
@@ -362,14 +378,27 @@ class Node:
             if self.type_ != counterpart.type_:
                 return False
             for key in self.arguments.keys():
-                if counterpart.argumnets.get(key) == None:
+                if counterpart.arguments.get(key) == None:
                     return False
             for key in counterpart.arguments.keys():
-                if self.argumnets.get(key) == None:
+                if self.arguments.get(key) == None:
                     return False
             for key, value in self.arguments.items():
-                if not value.interchangable(counterpart.arguments[key], A, B):
-                    return False
+                value2 = counterpart.arguments[key]
+                if isinstance(value, list):
+                    if not isinstance(value2, list):
+                        return False
+                    if len(value) != len(value2):
+                        return False
+                    for index, element in enumerate(value):
+                        if not element.interchangable(value2[index], A, B):
+                            return False
+                elif isinstance(value, Node):
+                    if not value.interchangable(counterpart.arguments[key], A, B):
+                        return False
+                else:
+                    if value != value2:
+                        return False
             return True
 
     # reason : A == B
@@ -408,6 +437,17 @@ class Node:
             assert input in statement.free
         assert output.type_ == TYPE_VARIABLE
         assert output.is_fresh()
+
+        def Tuple(*arguments):
+            arity = len(arguments)
+            if arity == 0:
+                return Node(TYPE_FUNCTION, name = "empty", children = [])
+            elif arity == 1:
+                return arguments[0]
+            elif arity == 2:
+                return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], arguments[1]])
+            else:
+                return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
 
         for input in reversed(inputs):
             statement = Node(TYPE_AND, left = Node(TYPE_PROPERTY, name = "set", children = [input]), right = statement)
@@ -549,15 +589,138 @@ def Tuple(*arguments):
     elif arity == 1:
         return arguments[0]
     elif arity == 2:
-        return Node(TYPE_FUNCTION, name = "tuple", children = [arguments[0], arguments[1]])
+        return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], arguments[1]])
     else:
-        return Node(TYPE_FUNCTION, name = "tuple", children = [arguments[0], Tuple(*arguments[1 : ])])
+        return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
 
 
 
+a = New()
+b = New()
+p = New()
+x = New()
+y = New()
+A = New()
+B = New()
+C = New()
 
 # PROOF START!
 
+# membership
 def in_(x, A):
     return Node(TYPE_PROPERTY, name = "membership", children = [x, A])
 
+# definition of set
+def Set(a):
+    return Node(TYPE_PROPERTY, name = "set", children = [a])
+(All(x, Set(x) == Exist(C, x @in_@ C))).define_property("set").save("set")
+
+# extensionality
+All(A, All(B, (All(x, (x @in_@ A) == (x @in_@ B)) == (A == B)))).accept().save("extensionality")
+
+# pairing
+def Pair(a, b):
+    return Node(TYPE_FUNCTION, name = "pair", children = [a, b])
+All(a, All(b, (Set(a) & Set(b)) >> UniquelyExist(p, Set(p) & All(x, (x @in_@ p) == ((x == a) | (x == b)))))).accept().save("pairing")
+All(a, All(b, (Set(a) & Set(b)) >> (Set(Pair(a, b)) & All(x, (x @in_@ Pair(a, b)) == ((x == a) | (x == b)))))).define_function("pair", "pairing").save("pair")
+
+# pair is a set
+a0 = New()
+b0 = New()
+with Set(a0).save(0):
+    with Set(b0).save(1):
+        All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(2)
+        ((Set(a0) & Set(b0)) >> (Set(Pair(a0, b0)) & All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))))).put(b0, 2).save(3)
+        Set(Pair(a0, b0)).tautology(0, 1, 3).save(4)
+    (Set(b0) >> Set(Pair(a0, b0))).deduce().save(5)
+(Set(a0) >> (Set(b0) >> Set(Pair(a0, b0)))).deduce().save(6)
+((Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).tautology(6).save(7)
+All(b0, (Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).generalize(7).save(8)
+All(a0, All(b0, (Set(a0) & Set(b0)) >> Set(Pair(a0, b0)))).generalize(8).save(9)
+All(b0, (Set(a) & Set(b0)) >> Set(Pair(a, b0))).put(a, 9).save(10)
+((Set(a) & Set(b)) >> Set(Pair(a, b))).put(b, 10).save(11)
+All(b, (Set(a) & Set(b)) >> Set(Pair(a, b))).generalize(11).save(12)
+All(a, All(b, (Set(a) & Set(b)) >> Set(Pair(a, b)))).generalize(12).save("pair_is_set")
+
+
+# reflection of equality
+All(A, A == A).accept().save("equality_reflection")
+
+# symmetry of equality
+with (A == B).save(0):
+    ((A == B) == (B == A)).replace(0).save(1)
+    (B == A).tautology(0, 1)
+((A == B) >> (B == A)).deduce().save(2)
+All(B, (A == B) >> (B == A)).generalize(2).save(3)
+All(A, All(B, (A == B) >> (B == A))).generalize(3).save("equality_symmetry")
+
+# transitivity of equality
+with (A == B).save(0):
+    with (C == B).save(1):
+        ((A == B) == (A == C)).replace(1).save(2)
+        ((A == C)).tautology(0, 1)
+    ((C == B) >> (A == C)).deduce().save(3)
+((A == B) >> ((C == B) >> (A == C))).deduce().save(4)
+(((A == B) & (C == B)) >> (A == C)).tautology(4).save(5)
+All(C, (((A == B) & (C == B)) >> (A == C))).generalize(5).save(6)
+All(A, All(C, ((A == B) & (C == B)) >> (A == C))).generalize(6).save(7)
+All(B, All(A, All(C, ((A == B) & (C == B)) >> (A == C)))).generalize(7).save("transitivity_equality")
+
+# unique_up_to_equality
+A0 = New()
+(A0 == A0).put(A0, "equality_reflection").save(0)
+Exist(B, B == A0).found(A0, 0).save(1)
+B0 = New()
+B1 = New()
+(B0 == A0).let(B0, 1).save(2)
+(B1 == A0).let(B1, 1).save(3)
+All(A, All(C, ((A == A0) & (C == A0)) >> (A == C))).put(A0, "transitivity_equality").save(4)
+All(C, ((B0 == A0) & (C == A0)) >> (B0 == C)).put(B0, 4).save(5)
+(((B0 == A0) & (B1 == A0)) >> (B0 == B1)).put(B1, 5).save(6)
+(B0 == B1).tautology(2, 3, 6).save(7)
+UniquelyExist(B, B == A0).claim_unique(7).save(8)
+All(A0, UniquelyExist(B, B == A0)).generalize(8).save(9)
+UniquelyExist(B, B == A).put(A, 9).save(10)
+All(A, UniquelyExist(B, B == A)).generalize(10).save("unqiue_up_to_equality")
+
+# ordered_pair
+def OrderedPair(a, b):
+    return Node(TYPE_FUNCTION, name = "ordered_pair", children = [a, b])
+a0 = New()
+b0 = New()
+UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0))).put(Pair(Pair(a0, a0), Pair(a0, b0)), "unqiue_up_to_equality").save(0)
+All(b0, UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0)))).generalize(0).save(1)
+All(a0, All(b0, UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0))))).generalize(1).save(2)
+All(a0, All(b0, (OrderedPair(a0, b0) == Pair(Pair(a0, a0), Pair(a0, b0))))).define_function("ordered_pair", 2).save(3)
+All(b0, (OrderedPair(a, b0) == Pair(Pair(a, a), Pair(a, b0)))).put(a, 3).save(4)
+(OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))).put(b, 4).save(5)
+All(b, (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b)))).generalize(5).save(6)
+All(a, All(b, (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))))).generalize(6).save("ordered_pair")
+
+# ordered_pair_is_set
+a0 = New()
+b0 = New()
+with Set(a0).save(0):
+    with Set(b0).save(1):
+        All(b, (Set(a0) & Set(b)) >> Set(Pair(a0, b))).put(a0, "pair_is_set").save(2)
+        ((Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).put(b0, 2).save(3)
+        Set(Pair(a0, b0)).tautology(0, 1, 3).save(4)
+        (((Set(a0) & Set(a0)) >> Set(Pair(a0, a0)))).put(a0, 2).save(5)
+        Set(Pair(a0, a0)).tautology(0, 1, 5).save(6)
+        All(b, (Set(Pair(a0, a0)) & Set(b)) >> Set(Pair(Pair(a0, a0), b))).put(Pair(a0, a0), "pair_is_set").save(7)
+        ((Set(Pair(a0, a0)) & Set(Pair(a0, b0))) >> Set(Pair(Pair(a0, a0), Pair(a0, b0)))).put(Pair(a0, b0), 7).save(8)
+        Set(Pair(Pair(a0, a0), Pair(a0, b0))).tautology(4, 6, 8).save(9)
+        All(b, (OrderedPair(a0, b) == Pair(Pair(a0, a0), Pair(a0, b)))).put(a0, "ordered_pair").save(10)
+        (OrderedPair(a0, b0) == Pair(Pair(a0, a0), Pair(a0, b0))).put(b0, 10).save(11)
+        (Set(OrderedPair(a0, b0)) == Set(Pair(Pair(a0, a0), Pair(a0, b0)))).replace(11).save(12)
+        Set(OrderedPair(a0, b0)).tautology(9, 12).save(13)
+    (Set(b0) >> Set(OrderedPair(a0, b0))).deduce().save(14)
+(Set(a0) >> (Set(b0) >> Set(OrderedPair(a0, b0)))).deduce().save(15)
+((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0))).tautology(15).save(16)
+All(b0, ((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0)))).generalize(16).save(17)
+All(a0, All(b0, ((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0))))).generalize(17).save(18)
+All(b0, ((Set(a) & Set(b0)) >> Set(OrderedPair(a, b0)))).put(a, 18).save(19)
+((Set(a) & Set(b)) >> Set(OrderedPair(a, b))).put(b, 19).save(20)
+All(b, (Set(a) & Set(b)) >> Set(OrderedPair(a, b))).generalize(20).save(21)
+All(a, All(b, (Set(a) & Set(b)) >> Set(OrderedPair(a, b)))).generalize(21).save("ordered_pair_is_set")
+        
