@@ -25,6 +25,19 @@ TYPE_IFF = 10
 TYPE_TRUE = 11
 TYPE_FALSE = 12
 
+DEDUCE = 13
+TAUTOLOGY = 14
+DEFINE_PROPERTY = 15
+DEFINE_FUNCTION = 16
+DEFINE_CLASS = 17
+DUAL = 18
+FOUND = 19
+CLAIM_UNIQUE = 20
+BY_UNIQUE = 21
+PUT = 22
+REPLACE = 23
+
+
 class Node:
     counter = 0
     branch = [0]
@@ -501,7 +514,7 @@ class Node:
 
     # operation overloading examples
     # (A +op/ B) gives you op(A, B)
-    # similar for (A *op+ B), (A >op@ B), whatever ...
+    # similar for (A *op+ B), (A >op** B), whatever ...
     def overload(self, B):
         assert not self.is_sentence()
         if self.operator == None:
@@ -561,21 +574,56 @@ class Node:
             return Node(TYPE_IMPLY, assumption = self, conclusion = B)
         return self.overload(B)
 
-    def __matmul__(self, B):
-        return self.overload(B)
 
-    def __eq__(self, B):
+
+    def __matmul__(self, B): # reserved!
+        save_as = B[0]
+
+        if len(B) == 1:
+            return self.save(save_as)
+        else:
+            inference = B[1]
+            arguments = B[2 : ]
+
+            if inference == DEDUCE:
+                return self.deduce(*arguments).save(save_as)
+            elif inference == TAUTOLOGY:
+                return self.tautology(*arguments).save(save_as)
+            elif inference == DEFINE_PROPERTY:
+                return self.define_property(*arguments).save(save_as)
+            elif inference == DEFINE_FUNCTION:
+                return self.define_function(*arguments).save(save_as)
+            elif inference == DEFINE_CLASS:
+                return self.define_class(*arguments).save(save_as)
+            elif inference == DUAL:
+                return self.dual(*arguments).save(save_as)
+            elif inference == FOUND:
+                return self.found(*arguments).save(save_as)
+            elif inference == CLAIM_UNIQUE:
+                return self.claim_unique(*arguments).save(save_as)
+            elif inference == BY_UNIQUE:
+                return self.by_unique(*arguments).save(save_as)
+            elif inference == PUT:
+                return self.put(*arguments).save(save_as)
+            elif inference == REPLACE:
+                return self.replace(*arguments).save(save_as)
+            else:
+                assert False
+
+    def __eq__(self, B): # reserved!
         if self.is_sentence():
             return Node(TYPE_IFF, left = self, right = B)
-        return Node(TYPE_PROPERTY, name = "equal", children = [self, B]) # reserved!
+        return Node(TYPE_PROPERTY, name = "equal", children = [self, B]) 
 
-    def __ne__(self, B):
+    def __ne__(self, B): # reserved!
         return Node(TYPE_NOT, body = Node(TYPE_PROPERTY, name = "equal", children = [self, B]))
     
 
-
 true = Node(TYPE_TRUE)
 false = Node(TYPE_FALSE)
+
+
+
 
 def New():
     return Node(TYPE_VARIABLE)
@@ -613,250 +661,11 @@ C = New()
 
 # PROOF START!
 
-# membership
+# in
 def in_(x, A):
-    return Node(TYPE_PROPERTY, name = "membership", children = [x, A])
+    return Node(TYPE_PROPERTY, name = "in", children = [x, A])
 
 # definition of set
 def Set(a):
     return Node(TYPE_PROPERTY, name = "set", children = [a])
-(All(x, Set(x) == Exist(C, x @in_@ C))).define_property("set").save("set")
-
-# extensionality
-All(A, All(B, (All(x, (x @in_@ A) == (x @in_@ B)) == (A == B)))).accept().save("extensionality")
-
-# pairing
-def Pair(a, b):
-    return Node(TYPE_FUNCTION, name = "pair", children = [a, b])
-All(a, All(b, (Set(a) & Set(b)) >> UniquelyExist(p, Set(p) & All(x, (x @in_@ p) == ((x == a) | (x == b)))))).accept().save("pairing")
-All(a, All(b, (Set(a) & Set(b)) >> (Set(Pair(a, b)) & All(x, (x @in_@ Pair(a, b)) == ((x == a) | (x == b)))))).define_function("pair", "pairing").save("pair")
-
-
-# pair is a set
-a0 = New()
-b0 = New()
-with Set(a0).save(0):
-    with Set(b0).save(1):
-        All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(2)
-        ((Set(a0) & Set(b0)) >> (Set(Pair(a0, b0)) & All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))))).put(b0, 2).save(3)
-        Set(Pair(a0, b0)).tautology(0, 1, 3).save(4)
-    (Set(b0) >> Set(Pair(a0, b0))).deduce().save(5)
-(Set(a0) >> (Set(b0) >> Set(Pair(a0, b0)))).deduce().save(6)
-((Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).tautology(6).save(7)
-All(b0, (Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).generalize(7).save(8)
-All(a0, All(b0, (Set(a0) & Set(b0)) >> Set(Pair(a0, b0)))).generalize(8).save(9)
-All(b0, (Set(a) & Set(b0)) >> Set(Pair(a, b0))).put(a, 9).save(10)
-((Set(a) & Set(b)) >> Set(Pair(a, b))).put(b, 10).save(11)
-All(b, (Set(a) & Set(b)) >> Set(Pair(a, b))).generalize(11).save(12)
-All(a, All(b, (Set(a) & Set(b)) >> Set(Pair(a, b)))).generalize(12).save("pair_is_set")
-
-
-# reflection of equality
-All(A, A == A).accept().save("equality_reflection")
-
-# symmetry of equality
-with (A == B).save(0):
-    ((A == B) == (B == A)).replace(0).save(1)
-    (B == A).tautology(0, 1)
-((A == B) >> (B == A)).deduce().save(2)
-All(B, (A == B) >> (B == A)).generalize(2).save(3)
-All(A, All(B, (A == B) >> (B == A))).generalize(3).save("equality_symmetry")
-
-# transitivity of equality
-with (A == B).save(0):
-    with (C == B).save(1):
-        ((A == B) == (A == C)).replace(1).save(2)
-        ((A == C)).tautology(0, 2)
-    ((C == B) >> (A == C)).deduce().save(3)
-((A == B) >> ((C == B) >> (A == C))).deduce().save(4)
-(((A == B) & (C == B)) >> (A == C)).tautology(4).save(5)
-All(C, (((A == B) & (C == B)) >> (A == C))).generalize(5).save(6)
-All(A, All(C, ((A == B) & (C == B)) >> (A == C))).generalize(6).save(7)
-All(B, All(A, All(C, ((A == B) & (C == B)) >> (A == C)))).generalize(7).save("transitivity_equality")
-
-# unique_up_to_equality
-A0 = New()
-(A0 == A0).put(A0, "equality_reflection").save(0)
-Exist(B, B == A0).found(A0, 0).save(1)
-B0 = New()
-B1 = New()
-(B0 == A0).let(B0, 1).save(2)
-(B1 == A0).let(B1, 1).save(3)
-All(A, All(C, ((A == A0) & (C == A0)) >> (A == C))).put(A0, "transitivity_equality").save(4)
-All(C, ((B0 == A0) & (C == A0)) >> (B0 == C)).put(B0, 4).save(5)
-(((B0 == A0) & (B1 == A0)) >> (B0 == B1)).put(B1, 5).save(6)
-(B0 == B1).tautology(2, 3, 6).save(7)
-UniquelyExist(B, B == A0).claim_unique(7).save(8)
-All(A0, UniquelyExist(B, B == A0)).generalize(8).save(9)
-UniquelyExist(B, B == A).put(A, 9).save(10)
-All(A, UniquelyExist(B, B == A)).generalize(10).save("unqiue_up_to_equality")
-
-# ordered_pair
-def OrderedPair(a, b):
-    return Node(TYPE_FUNCTION, name = "ordered_pair", children = [a, b])
-a0 = New()
-b0 = New()
-UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0))).put(Pair(Pair(a0, a0), Pair(a0, b0)), "unqiue_up_to_equality").save(0)
-All(b0, UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0)))).generalize(0).save(1)
-All(a0, All(b0, UniquelyExist(B, B == Pair(Pair(a0, a0), Pair(a0, b0))))).generalize(1).save(2)
-All(a0, All(b0, (OrderedPair(a0, b0) == Pair(Pair(a0, a0), Pair(a0, b0))))).define_function("ordered_pair", 2).save(3)
-All(b0, (OrderedPair(a, b0) == Pair(Pair(a, a), Pair(a, b0)))).put(a, 3).save(4)
-(OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))).put(b, 4).save(5)
-All(b, (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b)))).generalize(5).save(6)
-All(a, All(b, (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))))).generalize(6).save("ordered_pair")
-
-# ordered_pair_is_set
-a0 = New()
-b0 = New()
-with Set(a0).save(0):
-    with Set(b0).save(1):
-        All(b, (Set(a0) & Set(b)) >> Set(Pair(a0, b))).put(a0, "pair_is_set").save(2)
-        ((Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).put(b0, 2).save(3)
-        Set(Pair(a0, b0)).tautology(0, 1, 3).save(4)
-        (((Set(a0) & Set(a0)) >> Set(Pair(a0, a0)))).put(a0, 2).save(5)
-        Set(Pair(a0, a0)).tautology(0, 1, 5).save(6)
-        All(b, (Set(Pair(a0, a0)) & Set(b)) >> Set(Pair(Pair(a0, a0), b))).put(Pair(a0, a0), "pair_is_set").save(7)
-        ((Set(Pair(a0, a0)) & Set(Pair(a0, b0))) >> Set(Pair(Pair(a0, a0), Pair(a0, b0)))).put(Pair(a0, b0), 7).save(8)
-        Set(Pair(Pair(a0, a0), Pair(a0, b0))).tautology(4, 6, 8).save(9)
-        All(b, (OrderedPair(a0, b) == Pair(Pair(a0, a0), Pair(a0, b)))).put(a0, "ordered_pair").save(10)
-        (OrderedPair(a0, b0) == Pair(Pair(a0, a0), Pair(a0, b0))).put(b0, 10).save(11)
-        (Set(OrderedPair(a0, b0)) == Set(Pair(Pair(a0, a0), Pair(a0, b0)))).replace(11).save(12)
-        Set(OrderedPair(a0, b0)).tautology(9, 12).save(13)
-    (Set(b0) >> Set(OrderedPair(a0, b0))).deduce().save(14)
-(Set(a0) >> (Set(b0) >> Set(OrderedPair(a0, b0)))).deduce().save(15)
-((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0))).tautology(15).save(16)
-All(b0, ((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0)))).generalize(16).save(17)
-All(a0, All(b0, ((Set(a0) & Set(b0)) >> Set(OrderedPair(a0, b0))))).generalize(17).save(18)
-All(b0, ((Set(a) & Set(b0)) >> Set(OrderedPair(a, b0)))).put(a, 18).save(19)
-((Set(a) & Set(b)) >> Set(OrderedPair(a, b))).put(b, 19).save(20)
-All(b, (Set(a) & Set(b)) >> Set(OrderedPair(a, b))).generalize(20).save(21)
-All(a, All(b, (Set(a) & Set(b)) >> Set(OrderedPair(a, b)))).generalize(21).save("ordered_pair_is_set")
-
-# element in pair
-a0 = New()
-b0 = New()
-with (Set(a0) & Set(b0)).save(0):
-    All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(1)
-    ((Set(a0) & Set(b0)) >> (Set(Pair(a0, b0)) & All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))))).put(b0, 1).save(2)
-    All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))).tautology(0, 2).save(3)
-    ((a0 @in_@ Pair(a0, b0)) == ((a0 == a0) | (a0 == b0))).put(a0, 3).save(4)
-    (a0 == a0).put(a0, "equality_reflection").save(5)
-    (a0 @in_@ Pair(a0, b0)).tautology(4, 5).save(6)
-((Set(a0) & Set(b0)) >> (a0 @in_@ Pair(a0, b0))).deduce().save(7)
-All(b0, (Set(a0) & Set(b0)) >> (a0 @in_@ Pair(a0, b0))).generalize(7).save(8)
-All(a0, All(b0, (Set(a0) & Set(b0)) >> (a0 @in_@ Pair(a0, b0)))).generalize(8).save(9)
-All(b0, (Set(a) & Set(b0)) >> (a @in_@ Pair(a, b0))).put(a, 9).save(10)
-((Set(a) & Set(b)) >> (a @in_@ Pair(a, b))).put(b, 10).save(11)
-All(b, (Set(a) & Set(b)) >> (a @in_@ Pair(a, b))).generalize(11).save(12)
-All(a, All(b, (Set(a) & Set(b)) >> (a @in_@ Pair(a, b)))).generalize(12).save("element_in_pair_left")
-
-
-a0 = New()
-b0 = New()
-with (Set(a0) & Set(b0)).save(0):
-    All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(1)
-    ((Set(a0) & Set(b0)) >> (Set(Pair(a0, b0)) & All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))))).put(b0, 1).save(2)
-    All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))).tautology(0, 2).save(3)
-    ((b0 @in_@ Pair(a0, b0)) == ((b0 == a0) | (b0 == b0))).put(b0, 3).save(4)
-    (b0 == b0).put(b0, "equality_reflection").save(5)
-    (b0 @in_@ Pair(a0, b0)).tautology(4, 5).save(6)
-((Set(a0) & Set(b0)) >> (b0 @in_@ Pair(a0, b0))).deduce().save(7)
-All(b0, (Set(a0) & Set(b0)) >> (b0 @in_@ Pair(a0, b0))).generalize(7).save(8)
-All(a0, All(b0, (Set(a0) & Set(b0)) >> (b0 @in_@ Pair(a0, b0)))).generalize(8).save(9)
-All(b0, (Set(a) & Set(b0)) >> (b0 @in_@ Pair(a, b0))).put(a, 9).save(10)
-((Set(a) & Set(b)) >> (b @in_@ Pair(a, b))).put(b, 10).save(11)
-All(b, (Set(a) & Set(b)) >> (b @in_@ Pair(a, b))).generalize(11).save(12)
-All(a, All(b, (Set(a) & Set(b)) >> (b @in_@ Pair(a, b)))).generalize(12).save("element_in_pair_right")
-
-
-# ordered pair comparison
-a0 = New()
-b0 = New()
-c0 = New()
-d0 = New()
-with (Set(a0) & Set(b0) & Set(c0) & Set(d0)).save(0):
-    with (OrderedPair(a0, b0) == OrderedPair(c0, d0)).save(1):
-        All(b, (OrderedPair(a0, b) == Pair(Pair(a0, a0), Pair(a0, b)))).put(a0, "ordered_pair").save(2)
-        ((OrderedPair(a0, b0) == Pair(Pair(a0, a0), Pair(a0, b0)))).put(b0, 2).save(3)
-        All(b, (OrderedPair(c0, b) == Pair(Pair(c0, c0), Pair(c0, b)))).put(c0, "ordered_pair").save(4)
-        ((OrderedPair(c0, d0) == Pair(Pair(c0, c0), Pair(c0, d0)))).put(d0, 4).save(6)
-        ((OrderedPair(c0, d0) == Pair(Pair(c0, c0), Pair(c0, d0))) == (OrderedPair(a0, b0) == Pair(Pair(c0, c0), Pair(c0, d0)))).replace(1).save(7)
-        (OrderedPair(a0, b0) == Pair(Pair(c0, c0), Pair(c0, d0))).tautology(6, 7).save(8)
-        ((OrderedPair(a0, b0) == Pair(Pair(c0, c0), Pair(c0, d0))) == (Pair(Pair(a0, a0), Pair(a0, b0)) == Pair(Pair(c0, c0), Pair(c0, d0)))).replace(3).save(9)
-        (Pair(Pair(a0, a0), Pair(a0, b0)) == Pair(Pair(c0, c0), Pair(c0, d0))).tautology(8, 9).save(10)
-
-        All(b, (Set(a0) & Set(b)) >> Set(Pair(a0, b))).put(a0, "pair_is_set").save(11)
-        ((Set(a0) & Set(b0)) >> Set(Pair(a0, b0))).put(b0, 11).save(12)
-        Set(Pair(a0, b0)).tautology(0, 12).save(13)
-        ((Set(a0) & Set(a0)) >> Set(Pair(a0, a0))).put(a0, 11).save(14)
-        Set(Pair(a0, a0)).tautology(0, 14).save(15)
-
-        All(b, (Set(Pair(a0, a0)) & Set(b)) >> (Pair(a0, a0) @in_@ Pair(Pair(a0, a0), b))).put(Pair(a0, a0), "element_in_pair_left").save(16)
-        ((Set(Pair(a0, a0)) & Set(Pair(a0, b0))) >> (Pair(a0, a0) @in_@ Pair(Pair(a0, a0), Pair(a0, b0)))).put(Pair(a0, b0), 16).save(17)
-        (Pair(a0, a0) @in_@ Pair(Pair(a0, a0), Pair(a0, b0))).tautology(13, 15, 17).save(18)
-
-        ((Pair(a0, a0) @in_@ Pair(Pair(c0, c0), Pair(c0, d0))) == (Pair(a0, a0) @in_@ Pair(Pair(a0, a0), Pair(a0, b0)))).replace(10).save(19)
-        (Pair(a0, a0) @in_@ Pair(Pair(c0, c0), Pair(c0, d0))).tautology(18, 19).save(20)
-
-        
-        All(b, (Set(c0) & Set(b)) >> Set(Pair(c0, b))).put(c0, "pair_is_set").save(21)
-        ((Set(c0) & Set(d0)) >> Set(Pair(c0, d0))).put(d0, 21).save(22)
-        Set(Pair(a0, a0)).tautology(0, 22).save(23)
-        ((Set(c0) & Set(c0)) >> Set(Pair(c0, c0))).put(c0, 21).save(24)
-        Set(Pair(c0, c0)).tautology(0, 24).save(25)
-
-        All(b, (Set(Pair(c0, c0)) & Set(b)) >> (Set(Pair(Pair(c0, c0), b)) & All(x, (x @in_@ Pair(Pair(c0, c0), b)) == ((x == Pair(c0, c0)) | (x == b))))).put(Pair(c0, c0), "pair").save(26)
-        ((Set(Pair(c0, c0)) & Set(Pair(c0, d0))) >> (Set(Pair(Pair(c0, c0), Pair(c0, d0))) & All(x, (x @in_@ Pair(Pair(c0, c0), Pair(c0, d0))) == ((x == Pair(c0, c0)) | (x == Pair(c0, d0)))))).put(Pair(c0, d0), 26).save(27)
-        All(x, (x @in_@ Pair(Pair(c0, c0), Pair(c0, d0))) == ((x == Pair(c0, c0)) | (x == Pair(c0, d0)))).tautology(23, 25, 27).save(28)
-        ((Pair(a0, a0) @in_@ Pair(Pair(c0, c0), Pair(c0, d0))) == ((Pair(a0, a0) == Pair(c0, c0)) | (Pair(a0, a0) == Pair(c0, d0)))).put(Pair(a0, a0), 28).save(29)
-        ((Pair(a0, a0) == Pair(c0, c0)) | (Pair(a0, a0) == Pair(c0, d0))).tautology(20, 29).save(1000)
-
-        with (Pair(a0, a0) == Pair(c0, c0)).save(30):
-            All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(31)
-            ((Set(a0) & Set(a0)) >> (Set(Pair(a0, a0)) & All(x, (x @in_@ Pair(a0, a0)) == ((x == a0) | (x == a0))))).put(a0, 31).save(32)
-            All(x, (x @in_@ Pair(a0, a0)) == ((x == a0) | (x == a0))).tautology(0, 32).save(33)
-            
-            All(b, (Set(c0) & Set(b)) >> (Set(Pair(c0, b)) & All(x, (x @in_@ Pair(c0, b)) == ((x == c0) | (x == b))))).put(c0, "pair").save(34)
-            ((Set(c0) & Set(c0)) >> (Set(Pair(c0, c0)) & All(x, (x @in_@ Pair(c0, c0)) == ((x == c0) | (x == c0))))).put(c0, 34).save(35)
-            All(x, (x @in_@ Pair(c0, c0)) == ((x == c0) | (x == c0))).tautology(0, 35).save(36)
-            
-            ((a0 @in_@ Pair(a0, a0)) == ((a0 == a0) | (a0 == a0))).put(a0, 33).save(37)
-            (a0 == a0).put(a0, "equality_reflection").save(38)
-            (a0 @in_@ Pair(a0, a0)).tautology(37, 38).save(39)
-            ((a0 @in_@ Pair(a0, a0)) == (a0 @in_@ Pair(c0, c0))).replace(30).save(40)
-            (a0 @in_@ Pair(c0, c0)).tautology(39, 40).save(41)
-
-            All(b, (Set(c0) & Set(b)) >> (Set(Pair(c0, b)) & All(x, (x @in_@ Pair(c0, b)) == ((x == c0) | (x == b))))).put(c0, "pair").save(42)
-            ((Set(c0) & Set(c0)) >> (Set(Pair(c0, c0)) & All(x, (x @in_@ Pair(c0, c0)) == ((x == c0) | (x == c0))))).put(c0, 42).save(43)
-            All(x, (x @in_@ Pair(c0, c0)) == ((x == c0) | (x == c0))).tautology(0, 25, 43).save(44)
-            ((a0 @in_@ Pair(c0, c0)) == ((a0 == c0) | (a0 == c0))).put(a0, 44).save(45)
-            (a0 == c0).tautology(41, 45).save(46)
-        ((Pair(a0, a0) == Pair(c0, c0)) >> (a0 == c0)).deduce().save(47)
-
-        with (Pair(a0, a0) != Pair(c0, c0)).save(48):
-            (Pair(a0, a0) == Pair(c0, d0)).tautology(1000, 48).save(49)
-            All(b, (Set(c0) & Set(b)) >> (c0 @in_@ Pair(c0, b))).put(c0, "element_in_pair_left").save(50)
-            ((Set(c0) & Set(d0)) >> (c0 @in_@ Pair(c0, d0))).put(d0, 50).save(51)
-            (c0 @in_@ Pair(c0, d0)).tautology(0, 51).save(52)
-            ((c0 @in_@ Pair(c0, d0)) == (c0 @in_@ Pair(a0, a0))).replace(49).save(53)
-            (c0 @in_@ Pair(a0, a0)).tautology(52, 53).save(54)
-
-            All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(55)
-            ((Set(a0) & Set(a0)) >> (Set(Pair(a0, a0)) & All(x, (x @in_@ Pair(a0, a0)) == ((x == a0) | (x == a0))))).put(a0, 55).save(57)
-            All(x, (x @in_@ Pair(a0, a0)) == ((x == a0) | (x == a0))).tautology(0, 23, 57).save(58)
-            ((c0 @in_@ Pair(a0, a0)) == ((c0 == a0) | (c0 == a0))).put(c0, 58).save(59)
-            (c0 == a0).tautology(54, 59).save(60)
-        ((Pair(a0, a0) != Pair(c0, c0)) >> (c0 == a0)).deduce().save(61)
-
-        (c0 == a0).tautology(47, 61).save(62)
-
-
-        with (Pair(a0, b0) == Pair(c0, d0)).save(63):
-            ((Pair(a0, b0) == Pair(a0, c0)) == (Pair(a0, b0) == Pair(c0, d0))).replace(62).save(64)
-            (Pair(a0, b0) == Pair(a0, c0)).tautology(63, 64).save(65)
-
-            All(b, (Set(a0) & Set(b)) >> (Set(Pair(a0, b)) & All(x, (x @in_@ Pair(a0, b)) == ((x == a0) | (x == b))))).put(a0, "pair").save(66)
-            ((Set(a0) & Set(b0)) >> (Set(Pair(a0, b0)) & All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))))).put(b0, 66).save(67)
-            ((Set(a0) & Set(c0)) >> (Set(Pair(a0, c0)) & All(x, (x @in_@ Pair(a0, c0)) == ((x == a0) | (x == c0))))).put(c0, 66).save(68)
-
-            All(x, (x @in_@ Pair(a0, b0)) == ((x == a0) | (x == b0))).tautology(0, )
+(All(x, Set(x) == Exist(C, x *in_* C))) @ ("set", DEFINE_PROPERTY, "set",)
