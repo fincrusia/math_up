@@ -4,7 +4,7 @@
 #
 # some features are:
 # 1. everything is wrote in Python, and you might freely add any code you want
-# 2. it is super-simply implemented- it took only one day
+# 2. it aims super-simplicity and short learning time
 # 3. currently it is designed for NBG set theory only
 #
 # OK then, test yourself, enjoy your math!
@@ -36,9 +36,11 @@ CLAIM_UNIQUE = 20
 BY_UNIQUE = 21
 PUT = 22
 REPLACE = 23
+AXIOM = 24
 
 callbacks = {}
 
+proof_history = {}
 class Node:
     counter = 0
     branch = [0]
@@ -46,7 +48,6 @@ class Node:
     names = [set()]
     assumptions = [None]
     level = 0
-    history = {}
     last = None
     fresh = set()
 
@@ -101,7 +102,7 @@ class Node:
         hashing = [self.type_]
         if self.type_ == TYPE_VARIABLE:
             hashing.append(self.counter)
-        for key, value in self.arguments.items():
+        for key, value in sorted(self.arguments.items(), key = (lambda item : item[0])):
             hashing.append(key)
             if isinstance(value, list):
                 for element in value:
@@ -160,10 +161,10 @@ class Node:
     def save(self, save_as):
         assert self.is_sentence()
         if isinstance(save_as, str):
-            assert Node.history.get(save_as) == None
+            assert proof_history.get(save_as) == None
         else:
             assert isinstance(save_as, int)
-        Node.history[save_as] = self
+        proof_history[save_as] = self
         return self
 
     # deduction theorem
@@ -237,7 +238,7 @@ class Node:
             assert not name in names
         Node.names[Node.level].add(name)
 
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         arguments = []
         cursor = reason
@@ -259,7 +260,7 @@ class Node:
 
     # prove Exist(x, P(x)) from t & P(t)
     def found(self, term, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert not term.is_sentence()
         assert self.type_ == TYPE_EXIST
@@ -269,7 +270,7 @@ class Node:
     # prove P(c) from c & Exist(x, P(x))
     # c must be FRESH, i.e. must NOT be used in the proof so far
     def let(self, variable, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert reason.type_ in [TYPE_EXIST, TYPE_UNIQUELY_EXIST]
         assert variable.is_fresh()
@@ -285,7 +286,7 @@ class Node:
     # (a == b).save(number)
     # UniquelyExist(x, P(x)).unique(number)
     def claim_unique(self, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert reason.type_ == TYPE_PROPERTY
         assert reason.name == "equal"
@@ -296,9 +297,9 @@ class Node:
 
     # prove (a == b) from UniquelyExist(x, P(x)), P(a) & P(b)
     def by_unique(self, reason, left, right):
-        reason = Node.history[reason]
-        left = Node.history[left]
-        right = Node.history[right]
+        reason = proof_history[reason]
+        left = proof_history[left]
+        right = proof_history[right]
         assert reason.is_proved()
         assert left.is_proved()
         assert right.is_proved()
@@ -311,7 +312,7 @@ class Node:
     
     # prove P(t) from All(x, P(x))
     def put(self, replace_by, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert reason.type_ == TYPE_ALL
         assert not replace_by.is_sentence()
@@ -322,7 +323,7 @@ class Node:
     # NOT applicable to BOUNDED variables,
     # which is a let-variable or a free variable of any assumption.
     def generalize(self, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert self.bound.is_generalizable()
         assert hash(self) == hash(Node(TYPE_ALL, bound = self.bound, statement = reason))
@@ -367,7 +368,7 @@ class Node:
         mapping = {}
         logical_forms = []
         for reason in reasons:
-            reason = Node.history[reason]
+            reason = proof_history[reason]
             assert reason.is_proved()
             logical_forms.append(reason.logical_form(mapping))
         target = self.logical_form(mapping)
@@ -423,7 +424,7 @@ class Node:
     # target : either (P >> Q), or (P == Q),
     # where P & Q are sentences, only differ by interchanging A & B
     def replace(self, reason):
-        reason = Node.history[reason]
+        reason = proof_history[reason]
         assert reason.is_proved()
         assert reason.type_ == TYPE_PROPERTY
         assert reason.name == "equal"
@@ -608,8 +609,10 @@ class Node:
                 return self.put(*arguments).save(save_as)
             elif inference == REPLACE:
                 return self.replace(*arguments).save(save_as)
+            elif inference == AXIOM:
+                return self.accept().save(save_as)
             else:
-                return callbacks[inference](*arguments).save(save_as)
+                return callbacks[inference](self, *arguments).save(save_as)
 
     def __eq__(self, B): # reserved!
         if self.is_sentence():
@@ -629,14 +632,26 @@ false = Node(TYPE_FALSE)
 def New():
     return Node(TYPE_VARIABLE)
 
-def All(bound, statement):
-    return Node(TYPE_ALL, bound = bound, statement = statement)
+def All(*arguments):
+    bounds = arguments[ : -1]
+    statement = arguments[-1]
+    for bound in reversed(bounds):
+        statement = Node(TYPE_ALL, bound = bound, statement = statement)
+    return statement
 
-def Exist(bound, statement):
-    return Node(TYPE_EXIST, bound = bound, statement = statement)
+def Exist(*arguments):
+    bounds = arguments[ : -1]
+    statement = arguments[-1]
+    for bound in reversed(bounds):
+        statement = Node(TYPE_EXIST, bound = bound, statement = statement)
+    return statement
 
-def UniquelyExist(bound, statement):
-    return Node(TYPE_UNIQUELY_EXIST, bound = bound, statement = statement)
+def UniquelyExist(*arguments):
+    bounds = arguments[ : -1]
+    statement = arguments[-1]
+    for bound in reversed(bounds):
+        statement = Node(TYPE_UNIQUELY_EXIST, bound = bound, statement = statement)
+    return statement
 
 def Tuple(*arguments):
     arity = len(arguments)
@@ -813,14 +828,67 @@ def clear():
 
 # PROOF START!
 
-# in
+def match(A, B, counters, mapping):
+    if A.type_ == TYPE_VARIABLE:
+        if A.counter in counters:
+            if mapping.get(A.counter):
+                assert hash(mapping[A.counter]) == hash(B)
+            else:
+                mapping[A.counter] == B
+    else:
+        assert A.type_ == B.type_
+        for key, value in A.arguments:
+            if isinstance(value, list):
+                for index, element in enumerate(value):
+                    match(element, B.arguments[key][index], counters, mapping)
+            elif isinstance(value, Node):
+                match(value, B.arguments[key], counters, mapping)
+            else:
+                assert B.arguments[key] == value
+
+# theorem use
+def by_theorem(target, name, *reasons):
+    cursor = proof_history[name]
+    bounds = set()
+    while cursor.type_ == TYPE_ALL:
+        bounds.add(cursor.bound.counter)
+        cursor = cursor.statement
+    if cursor.type_ == TYPE_IMPLY:
+        assumption = cursor.assumption
+        conclusion = cursor.conclusion
+        mapping = {}
+        match(cursor, target, bounds, mapping)
+        cursor = proof_history[name]
+        while cursor.type_ == TYPE_ALL:
+            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])).put(mapping[cursor.bound.counter])
+        return conclusion.tautology(cursor, *reasons)
+    else:
+        mapping = {}
+        match(cursor, target, bounds, mapping)
+        cursor = proof_history[name]
+        while cursor.type_ == TYPE_ALL:
+            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])).put(mapping[cursor.bound.counter])
+        return cursor
+
+BY_THEOREM = 25
+callbacks[BY_THEOREM] = by_theorem
+
+# membership
+clear()
 def in_(x, A):
     return Node(TYPE_PROPERTY, name = "in", children = [x, A])
 
 # definition of set
+clear()
 def Set(a):
     return Node(TYPE_PROPERTY, name = "set", children = [a])
-
-clear()
 (All(x_, Set(x_) == Exist(C_, x_ *in_* C_))) @ ("set", DEFINE_PROPERTY, "set")
+
+# equality reflection
+clear()
+All(A_, A_ == A_) @ ("equality_reflection", AXIOM)
+
+# extensionality
+clear()
+All(A_, B_, (A_ == B_) == All(x_, (x_ *in_* A_) == (x_ *in_* B_))) @ ("extensionality", AXIOM)
 
