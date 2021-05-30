@@ -2,8 +2,30 @@
 a simple proof system I made to learn math without any mistakes
 ___________________________________________________________________
 <br><br>
-The following description assumes you already know first-order logical concepts.
-<br><br>
+
+## 0. Short Introduction
+
+
+<br>*test yourself, enjoy your math!*<br>
+
+**math_up** is an <ins>NBG-based, very simple but programmable proof verifier written in Python</ins>.<br>
+Some notable features are:
+* super-simplicity, short learning time
+* programmability
+* fully written in Python (including all the proofs!)
+* trade-off between runtime efficiency & reductionism
+* non-generic implementation (supports only 1st-order logic, NBG set theory)
+* supports on Fitch-style proofs, "let" varaibles and many other intuitive APIs
+* rule-based, without any AI-like things
+
+<br>
+The following sections assumes you already know basic concepts on logic and set theory.<br>
+<br>
+Author : Hyunwoo Yang
+* Department of Mathematical Sciences, Seoul National University (2013 ~ 2019)
+* Modem R&D Group, Samsung Networks (2019 ~ )
+
+<br>
 
 ## 1. Sentence Generation
 <br>
@@ -26,7 +48,7 @@ YourPropertyName(a, b) # usage
 1-3. Logical Connections
     
 ```
-~P          # not P
+~ P         # not P
 P & Q       # P and Q
 P | Q       # P or Q
 P >> Q      # P imply Q
@@ -187,7 +209,17 @@ UniquelyExist(x, P(x)) @ (14, CLAIM_UNIQUE, 13)
 Before you use it, you have to apply *LET* two times, and show the result variables are the same.<br>
 No arguments are required, but the equality is consumed as the only reason.<br>
 <br>
-
+3-11. DEFINE_CLASS
+```
+UniquelyExist(C, All(x, (x in C) == UniquelyExist(a, UniquelyExist(b, (x == Tuple(a,b)) and Set(a) & Set(b) & P(a, b))))) @ (17, DEFINE_CLASS, C, x, [a, b], P(a, b))
+```
+This implements the class existence theorem of the NBG set theory.<br>
+No reasoning is required, but there are four arguments:<br>
+*C* : a fresh varaible, to be a newly defined class<br>
+*x* : a fresh variable, to indicate the elements of *C*<br>
+*[a, b, ...]* : list of the components of *x*<br>
+*P(a, b)* : a condition satisfied by the components<br>
+<br>
 
 
 
