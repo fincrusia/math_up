@@ -137,7 +137,7 @@ Exist(x, P(x)) @ (6, INFERENCE0, argument0, 5)
 P(c) @ (7, LET, c, 6)
 ```
 This one is the inverse of *FOUND*- i.e. it gives a real example from the existence.<br>
-It requires a fresh variable to use as an existential bound variable as an argument.<br>
+It requires a fresh variable(i.e. never been used after the last *clean()*) to use as an existential bound variable as an argument.<br>
 Also, of course, an existential statement is required as the only reason.<br>
 <br>
 3-7. PUT
@@ -157,7 +157,38 @@ P(x, a, f(c)) @ (9, REPLACE, 8)
 When the two terms *s* and *t* are shown to be equal to each other, and the sentence *Q* is obtained from a previously proved *P* by interchainging *s* and *t* several times, *REPLACE* deduces *Q* from the two reasoning, i.e. *s == t* and *P*.<br>
 No arguments are needed.<br>
 <br>
-3-9. 
+3-9. AXIOM
+```
+any_sentence @ ("save_as", AXIOM)
+```
+*AXIOM* requires no inputs, but simply makes a sentence to be proved.<br>
+<br>
+3-10. BY_UNIQUE
+```
+UniquelyExist(x, P(x)) @ (0, INFERENCE0)
+P(a) @ (1, INFERENCE1, argument0)
+P(f(b)) @ (2, INFERENCE2, argument1)
+(a == f(b)) @ (3, BY_UNIQUE, 0, 1, 2)
+```
+*BY_UNIQUE* requires no arguments, but requires three reasons.<br>
+The first one is about unique existence, and the last two are specifications.<br>
+You can conclude two terms used for specifications respectively are equal to each other.
+<br>
+3-10. CLAIM_UNIQUE
+```
+Exist(x, P(x)) @ (6, INFERENCE0, argument0, 5)
+P(c) @ (7, LET, c, 6)
+P(d) @ (8, LET, d, 6)
+# your proof ...
+(c == d) @ (13, INFERENCE0, 12)
+UniquelyExist(x, P(x)) @ (14, CLAIM_UNIQUE, 13)
+```
+*CLAIM_UNIQUE* upgrades an existence statement to a unique-existence statement.<br>
+Before you use it, you have to apply *LET* two times, and show the result variables are the same.<br>
+No arguments are required, but the equality is consumed as the only reason.<br>
+<br>
+
+
 
 
 
