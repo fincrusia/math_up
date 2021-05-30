@@ -222,6 +222,32 @@ No reasoning is required, but there are four arguments:<br>
 *P(a, b)* : a condition satisfied by the components<br>
 <br>
 
+<br>
+
+## 4. Remarks
+
+<br>
+4-1. Trade-Off : Runtime Efficiency vs. Reductionism<br><br>
+
+The class existence theorem is actually not an axiom, but is PROVABLE, due to Goedel<br>
+However, proving it requires recursively break down all the higher-level definitions to the primitive ones<br>
+I'm afraid our computers would not have enough resourse to do such tedious computation...<br>
+Similarly, meta-theorems such as deduction theorem, RULE-C, function definition are NOT reduced by this program.<br>
+
+<br>
+4-2. Trade-Off : Readability vs. Completeness<br><br>
+
+Actually, we need one more axiom: All(x, P and Q(x)) >> (P and All(x, Q(x)))<br>
+But I'll not implement this here... it may not, and should not be needed for readable proofs.<br>
+For the similar reasons, the program doesn't allow weird sentences like *All(x, All(x, P(x)))* or *All(x, P(y))*.<br>
+Strictly speaking, **math_up** is an incomplete system to restrict the proofs more readable.
 
 
+<br>
+4-3. Acknowledgement<br><br>
+
+Thanks to everyone taught me math & CS.<br>
+Mendelson's excellent book, *Introduction to Mathematical Logic* was extremely helpful.<br>
+Jech's *Set Theory* was hard to read but great.<br>
+<br>
 
