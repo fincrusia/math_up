@@ -441,7 +441,7 @@ class Node:
 
     # usage example for arity == 2
     # output : FRESH variable C
-    # element : FRESH varaible x
+    # element : FRESH variable x
     # inputs : a, b
     # statement : P(a, b) # must includes a, b as FREE variables
     # 

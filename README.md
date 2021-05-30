@@ -15,7 +15,7 @@ Some notable features are:
 * fully written in Python (including all the proofs!)
 * trade-off between runtime efficiency & reductionism
 * non-generic implementation (supports only 1st-order logic, NBG set theory)
-* supports on Fitch-style proofs, "let" varaibles and many other intuitive APIs
+* supports on Fitch-style proofs, "let" variables and many other intuitive APIs
 * rule-based, without any AI-like things
 
 <br>
@@ -216,7 +216,7 @@ UniquelyExist(C, All(x, (x in C) == UniquelyExist(a, UniquelyExist(b, (x == Tupl
 ```
 This implements the class existence theorem of the NBG set theory.<br>
 No reasoning is required, but there are four arguments:<br>
-*C* : a fresh varaible, to be a newly defined class<br>
+*C* : a fresh variable, to be a newly defined class<br>
 *x* : a fresh variable, to indicate the elements of *C*<br>
 *[a, b, ...]* : list of the components of *x*<br>
 *P(a, b)* : a condition satisfied by the components<br>
