@@ -37,6 +37,7 @@ BY_UNIQUE = 21
 PUT = 22
 REPLACE = 23
 AXIOM = 24
+LET = 30
 
 callbacks = {}
 
@@ -420,20 +421,17 @@ class Node:
                         return False
             return True
 
-    # reason : A == B
-    # target : either (P >> Q), or (P == Q),
+    # reason : P, A == B
+    # target : Q,
     # where P & Q are sentences, only differ by interchanging A & B
-    def replace(self, reason):
+    def replace(self, reason, equality):
         reason = proof_history[reason]
+        equality = proof_history[equality]
         assert reason.is_proved()
-        assert reason.type_ == TYPE_PROPERTY
-        assert reason.name == "equal"
-        if self.type_ == TYPE_IMPLY:
-            assert self.assumption.interchangable(self.conclustion, reason.children[0], reason.children[1])
-        elif self.type_ == TYPE_IFF:
-            assert self.left.interchangable(self.right, reason.children[0], reason.children[1])
-        else:
-            assert False
+        assert equality.is_proved()
+        assert equality.type_ == TYPE_PROPERTY
+        assert equality.name == "equal"
+        assert self.interchangable(reason, equality.children[0], equality.children[1])
         return self.accept()
 
     # class existence theorem
@@ -579,8 +577,11 @@ class Node:
 
 
     def __matmul__(self, B): # reserved!
-        save_as = B[0]
+        if not isinstance(B, tuple):
+            return self.save(B)
 
+        save_as = B[0]
+        
         if len(B) == 1:
             return self.save(save_as)
         else:
@@ -873,15 +874,23 @@ def by_theorem(target, name, *reasons):
 BY_THEOREM = 25
 callbacks[BY_THEOREM] = by_theorem
 
+def make_property(name):
+    def new_property(*arguments):
+        return Node(TYPE_PROPERTY, name = name, children = [*arguments])
+    return new_property
+
+def make_function(name):
+    def new_function(*arguments):
+        return Node(TYPE_FUNCTION, name = name, children = [*arguments])
+    return new_function
+
 # membership
 clear()
-def in_(x, A):
-    return Node(TYPE_PROPERTY, name = "in", children = [x, A])
+in_ = make_property("in")
 
 # definition of set
 clear()
-def Set(a):
-    return Node(TYPE_PROPERTY, name = "set", children = [a])
+Set = make_property("set")
 (All(x_, Set(x_) == Exist(C_, x_ *in_* C_))) @ ("set", DEFINE_PROPERTY, "set")
 
 # equality reflection
