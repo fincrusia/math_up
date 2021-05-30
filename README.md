@@ -21,7 +21,8 @@ Some notable features are:
 <br>
 The following sections assumes you already know basic concepts on logic and set theory.<br>
 <br>
-Author : Hyunwoo Yang
+Author : Hyunwoo Yang<br>
+
 * Department of Mathematical Sciences, Seoul National University (2013 ~ 2019)
 * Modem R&D Group, Samsung Networks (2019 ~ )
 
