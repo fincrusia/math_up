@@ -618,6 +618,8 @@ class Node:
                 return self.accept().save(save_as)
             elif inference == GENERALIZE:
                 return self.generalize(*arguments).save(save_as)
+            elif inference == LET:
+                return self.let(*arguments).save(save_as)
             else:
                 return callbacks[inference](self, *arguments).save(save_as)
 
@@ -849,7 +851,7 @@ def match(A, B, counters, mapping):
                 mapping[A.counter] == B
     else:
         assert A.type_ == B.type_
-        for key, value in A.arguments:
+        for key, value in A.arguments.items():
             if isinstance(value, list):
                 for index, element in enumerate(value):
                     match(element, B.arguments[key][index], counters, mapping)
@@ -866,21 +868,22 @@ def by_theorem(target, name, *reasons):
         bounds.add(cursor.bound.counter)
         cursor = cursor.statement
     if cursor.type_ == TYPE_IMPLY:
-        assumption = cursor.assumption
-        conclusion = cursor.conclusion
+        assert len(cursor.assumption.free) == len(cursor.conclusion.free)
         mapping = {}
-        match(cursor, target, bounds, mapping)
+        conclusion = cursor.conclusion
+        match(conclusion, target, bounds, mapping)
         cursor = proof_history[name]
         while cursor.type_ == TYPE_ALL:
-            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])).put(mapping[cursor.bound.counter])
-        return conclusion.tautology(cursor, *reasons)
+            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+        return target @ (-1, TAUTOLOGY, -1, *reasons)
+
     else:
         mapping = {}
         match(cursor, target, bounds, mapping)
         cursor = proof_history[name]
         while cursor.type_ == TYPE_ALL:
-            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])).put(mapping[cursor.bound.counter])
-        return cursor
+            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+        return target @ (-1, TAUTOLOGY, -1, *reasons)
 
 BY_THEOREM = 25
 callbacks[BY_THEOREM] = by_theorem
