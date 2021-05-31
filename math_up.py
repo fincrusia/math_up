@@ -901,3 +901,4 @@ All(A_, A_ == A_) @ ("equality_reflection", AXIOM)
 clear()
 All(A_, B_, (A_ == B_) == All(x_, (x_ *in_* A_) == (x_ *in_* B_))) @ ("extensionality", AXIOM)
 
+clear()

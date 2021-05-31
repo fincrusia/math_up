@@ -44,6 +44,12 @@ clear() # clear all alphabets
 YourPropertyName = make_property("its_formal_name") # required at the first time
 YourPropertyName(a, b) # usage
 ```
+If the property is a binary relation, you can use operator overloading.<br>
+For example:<br>
+```
+a <P< b # this returns P(a, b)
+a %P* b # actually, any operators are OK
+```
 <br>
 
 1-3. Logical Connections
@@ -72,6 +78,12 @@ UniquelyExist(a, P(a, t)) # a is the only one such that P(a, t)
 ```
 YourFunctionName = make_function("its_formal_name") # required at the first time
 YourFunctionName(x, y, z) # usage
+```
+If the function is a binary operator, you can use operator overloading.<br>
+For example:<br>
+```
+x <F< y # this returns F(x, y)
+x %F* y # actually, any operators are OK
 ```
 <br>
 
