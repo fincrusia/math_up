@@ -237,7 +237,7 @@ class Node:
 
     # define function
     # All(x, Q(x) >> UniquelyExist(y, P(x, y))).by(...).save(number)
-    # All(x, Q(x) >> P(x, f(x))).functionize("your_function_name", number)
+    # All(x, Q(x) >> P(x, f(x))).define_function("your_function_name", number)
     def define_function(self, name, reason):
         for names in Node.names:
             assert not name in names
@@ -954,4 +954,11 @@ All(A_, B_, C_, (((A_ == B_) & (C_ == B_)) >> (A_ == C_))) @ ("equality_transiti
 clear()
 All(A_, B_, (A_ == B_) == All(x_, (x_ *in_* A_) == (x_ *in_* B_))) @ ("extensionality", AXIOM)
 
+# pairing
 clear()
+All(a_, b_, (Set(a_) & Set(b_)) >> UniquelyExist(p_, Set(p_) & All(x_, ((x_ *in_* p_) == ((x_ == a_) | (x_ == b_)))))) @ ("pairing", AXIOM)
+
+Pair = make_function("pair")
+All(a_, b_, (Set(a_) & Set(b_)) >> (Set(Pair(a_, b_)) & All(x_, ((x_ *in_* Pair(a_, b_)) == ((x_ == a_) | (x_ == b_)))))) @ ("pair", DEFINE_FUNCTION, "pair", "pairing")
+
+
