@@ -38,6 +38,7 @@ PUT = 22
 REPLACE = 23
 AXIOM = 24
 LET = 30
+GENERALIZE = 31
 
 callbacks = {}
 
@@ -58,8 +59,11 @@ class Node:
         self.arguments = arguments
 
         if type_ == TYPE_VARIABLE:
-            self.counter = Node.counter
-            Node.counter += 1
+            if arguments.get("counter") != None:
+                self.counter = arguments["counter"]
+            else:
+                self.counter = Node.counter
+                Node.counter += 1
             self.free.add(self.counter)
             self.defined_by = arguments.get("defined_by")
             Node.fresh.add(self.counter)
@@ -612,6 +616,8 @@ class Node:
                 return self.replace(*arguments).save(save_as)
             elif inference == AXIOM:
                 return self.accept().save(save_as)
+            elif inference == GENERALIZE:
+                return self.generalize(*arguments).save(save_as)
             else:
                 return callbacks[inference](self, *arguments).save(save_as)
 
@@ -630,8 +636,13 @@ false = Node(TYPE_FALSE)
 
 
 
-def New():
-    return Node(TYPE_VARIABLE)
+def New(*counter):
+    if len(counter) == 0:
+        return Node(TYPE_VARIABLE)
+    elif len(counter) == 1:
+        return Node(TYPE_VARIABLE, counter = counter[0])
+    else:
+        assert False
 
 def All(*arguments):
     bounds = arguments[ : -1]
@@ -884,6 +895,30 @@ def make_function(name):
         return Node(TYPE_FUNCTION, name = name, children = [*arguments])
     return new_function
 
+def closing(target, reason):
+    cursor = target
+    free = {}
+    reason = proof_history[reason]
+    assert reason.is_proved()
+    for counter in reason.free:
+        free[counter % 52] = counter # 52 == number of alphabets, a-Z
+    bounds = []
+    closed = reason @ -1
+    while cursor.type_ == TYPE_ALL:
+        bounds.append(cursor.bound)
+        cursor = cursor.statement
+    for bound in reversed(bounds):
+        variable = New(free[bound.counter])
+        closed = All(variable, closed) @ (-1, GENERALIZE,-1)
+    for bound in bounds:
+        closed = closed.statement.substitute(closed.bound, bound) @ (-1, PUT, bound, -1)
+    for bound in reversed(bounds):
+        closed = All(bound, closed) @ (-1, GENERALIZE, -1)
+    return cursor
+
+CLOSING = 26
+callbacks[CLOSING] = closing
+
 # membership
 clear()
 in_ = make_property("in")
@@ -896,6 +931,24 @@ Set = make_property("set")
 # equality reflection
 clear()
 All(A_, A_ == A_) @ ("equality_reflection", AXIOM)
+
+# equality symmetry
+clear()
+with (A == B) @ 0:
+    (B == A) @ (1, REPLACE, 0, 0)
+((A == B) >> (B == A)) @ (2, DEDUCE)
+All(A_, B_, ((A_ == B_) >> (B_ == A_))) @ ("equality_symmetry", CLOSING, 2)
+
+# equality transitivity
+clear()
+with (A == B) @ 0:
+    with (C == B) @ 1:
+        (A == C) @ (2, REPLACE, 0, 1)
+    ((C == B) >> (A == C)) @ (3, DEDUCE)
+((A == B) >> ((C == B) >> (A == C))) @ (4, DEDUCE)
+(((A == B) & (C == B)) >> (A == C)) @ (5, TAUTOLOGY, 4)
+All(A_, B_, C_, (((A_ == B_) & (C_ == B_)) >> (A_ == C_))) @ ("equality_transitivity", CLOSING, 5)
+
 
 # extensionality
 clear()
