@@ -624,11 +624,15 @@ class Node:
                 return callbacks[inference](self, *arguments).save(save_as)
 
     def __eq__(self, B): # reserved!
+        if B == None:
+            return False
         if self.is_sentence():
             return Node(TYPE_IFF, left = self, right = B)
         return Node(TYPE_PROPERTY, name = "equal", children = [self, B]) 
 
     def __ne__(self, B): # reserved!
+        if B == None:
+            return True
         return Node(TYPE_NOT, body = Node(TYPE_PROPERTY, name = "equal", children = [self, B]))
     
 
@@ -842,13 +846,15 @@ def clear():
 
 # PROOF START!
 
+
+# theorem use
 def match(A, B, counters, mapping):
     if A.type_ == TYPE_VARIABLE:
         if A.counter in counters:
-            if mapping.get(A.counter):
+            if mapping.get(A.counter) != None:
                 assert hash(mapping[A.counter]) == hash(B)
             else:
-                mapping[A.counter] == B
+                mapping[A.counter] = B
     else:
         assert A.type_ == B.type_
         for key, value in A.arguments.items():
@@ -860,7 +866,6 @@ def match(A, B, counters, mapping):
             else:
                 assert B.arguments[key] == value
 
-# theorem use
 def by_theorem(target, name, *reasons):
     cursor = proof_history[name]
     bounds = set()
@@ -876,7 +881,6 @@ def by_theorem(target, name, *reasons):
         while cursor.type_ == TYPE_ALL:
             cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
         return target @ (-1, TAUTOLOGY, -1, *reasons)
-
     else:
         mapping = {}
         match(cursor, target, bounds, mapping)
@@ -887,6 +891,29 @@ def by_theorem(target, name, *reasons):
 
 BY_THEOREM = 25
 callbacks[BY_THEOREM] = by_theorem
+
+def put_theorem(target, name, hidden, *reasons):
+    cursor = proof_history[name]
+    assert cursor.is_proved()
+    bounds = set()
+    while cursor.type_ == TYPE_ALL:
+        bounds.add(cursor.bound.counter)
+        cursor = cursor.statement
+    assert cursor.type_ == TYPE_IMPLY
+    assert len(cursor.assumption.free) == len(cursor.conclusion.free) + 1
+    mapping = {}
+    conclusion = cursor.conclusion
+    match(conclusion, target, bounds, mapping)
+    cursor = proof_history[name]
+    while cursor.type_ == TYPE_ALL:
+        if mapping.get(cursor.bound.counter) != None:
+            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+        else:
+            cursor = (cursor.statement.substitute(cursor.bound, hidden)) @ (-1, PUT, hidden, -1)
+    return target @ (-1, TAUTOLOGY, -1, *reasons)
+
+PUT_THEOREM = 28
+callbacks[PUT_THEOREM] = put_theorem
 
 def make_property(name):
     def new_property(*arguments):
@@ -917,7 +944,7 @@ def closing(target, reason):
         closed = closed.statement.substitute(closed.bound, bound) @ (-1, PUT, bound, -1)
     for bound in reversed(bounds):
         closed = All(bound, closed) @ (-1, GENERALIZE, -1)
-    return cursor
+    return closed
 
 CLOSING = 26
 callbacks[CLOSING] = closing
@@ -952,6 +979,33 @@ with (A == B) @ 0:
 (((A == B) & (C == B)) >> (A == C)) @ (5, TAUTOLOGY, 4)
 All(A_, B_, C_, (((A_ == B_) & (C_ == B_)) >> (A_ == C_))) @ ("equality_transitivity", CLOSING, 5)
 
+# unique up to equality
+clear()
+(A == A) @ (0, PUT, A, "equality_reflection")
+Exist(B_, B_ == A) @ (1, FOUND, A, 0)
+(B == A) @ (2, LET, B, 1)
+(C == A) @ (3, LET, C, 1)
+(B == C) @ (4, PUT_THEOREM, "equality_transitivity", A, 2, 3)
+UniquelyExist(B_, B_ == A) @ (5, CLAIM_UNIQUE, 4)
+All(A_, UniquelyExist(B_, B_ == A_)) @ ("unique_up_to_equality", CLOSING, 5)
+
+# composite
+def composite_function(target, name):
+    cursor = target
+    inputs = []
+    while cursor.type_ == TYPE_ALL:
+        inputs.append(cursor.bound)
+        cursor = cursor.statement
+    assert cursor.type_ == TYPE_PROPERTY
+    assert cursor.name == "equal"
+    output = cursor.children[1]
+    cursor = UniquelyExist(B_, B_ == output) @ (-1, PUT, output, "unique_up_to_equality")
+    for input in reversed(inputs):
+        cursor = All(input, cursor) @ (-1, GENERALIZE, -1)
+    return target @ (-1, DEFINE_FUNCTION, name, -1)
+
+COMPOSITE = 32
+callbacks[COMPOSITE] = composite_function
 
 # extensionality
 clear()
@@ -961,7 +1015,10 @@ All(A_, B_, (A_ == B_) == All(x_, (x_ *in_* A_) == (x_ *in_* B_))) @ ("extension
 clear()
 All(a_, b_, (Set(a_) & Set(b_)) >> UniquelyExist(p_, Set(p_) & All(x_, ((x_ *in_* p_) == ((x_ == a_) | (x_ == b_)))))) @ ("pairing", AXIOM)
 
+# pair
 Pair = make_function("pair")
 All(a_, b_, (Set(a_) & Set(b_)) >> (Set(Pair(a_, b_)) & All(x_, ((x_ *in_* Pair(a_, b_)) == ((x_ == a_) | (x_ == b_)))))) @ ("pair", DEFINE_FUNCTION, "pair", "pairing")
 
-
+# ordered pair
+OrderedPair = make_function("ordered_pair")
+All(a_, b_, OrderedPair(a_, b_) == Pair(Pair(a_, a_), Pair(a_, b_))) @ ("ordered_pair", COMPOSITE, "ordered_pair")
