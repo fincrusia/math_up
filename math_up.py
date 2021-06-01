@@ -158,9 +158,11 @@ class Node:
 
         elif self.type_ in [TYPE_FUNCTION, TYPE_PROPERTY]:
             ret = self.name + "("
-            for child in self.children[ : -1]:
-                ret += (str(child) + ", ")
-            ret += (str(self.children[-1]) + ")")
+            if len(self.children) > 0:
+                for child in self.children[ : -1]:
+                    ret += (str(child) + ", ")
+                ret += str(self.children[-1])
+            ret += ")"
             return ret
         elif self.type_ == TYPE_ALL:
             return "All(" + str(self.bound) + "," + str(self.statement) + ")"
@@ -510,7 +512,9 @@ class Node:
                 assert False
 
         if len(inputs) == 0:
-            return Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "in", children = [element, output]), right = statement))).accept()
+            statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "in", children = [element, output]), right = statement)))
+            assert hash(self) == hash(statement)
+            return self.accept()
         elif len(inputs) == 1:
             assert False # DEFINE_CLASS with a single input -> try not to use the input
         else:
@@ -998,13 +1002,12 @@ def closing(target, reason):
         cursor = cursor.statement
     for bound in reversed(bounds):
         variable = New(free[bound.counter])
-        closed = All(variable, closed) @ (-1, GENERALIZE,-1)
+        closed = All(variable, closed) @ (-1, GENERALIZE, -1)
     for bound in bounds:
         closed = closed.statement.substitute(closed.bound, bound) @ (-1, PUT, bound, -1)
     for bound in reversed(bounds):
         closed = All(bound, closed) @ (-1, GENERALIZE, -1)
-    assert hash(closed) == hash(target)
-    return closed
+    return target @ (-1, TAUTOLOGY, -1)
 
 CLOSING = 26
 callbacks[CLOSING] = closing
@@ -1383,13 +1386,27 @@ All(p_, Arity2(p_) >> ((Set(Left(p_)) & Set(Right(p_))) & (p_ == OrderedPair(Lef
 # empty
 clear()
 Empty = make_function("empty")
-UniquelyExist(E, All(x_, x_ *in_* E) == false) @ (0, DEFINE_CLASS, E, x_, [], false)
+UniquelyExist(E, All(x_, (x_ *in_* E) == false)) @ (0, DEFINE_CLASS, E, x_, [], false)
 All(x_, (x_ *in_* Empty()) == false) @ ("empty", DEFINE_FUNCTION, "empty", 0)
 
 # relation
 clear()
 Relation = make_property("relation")
-All(R_, Relation(R_) == All(x_, (x_ *in_* R_) >> Arity2(x_))) @ ("relation", DEFINE_PROPERTY, "relation")
+All(R_, (Relation(R_) == All(x_, (x_ *in_* R_)) >> Arity2(x_))) @ ("relation", DEFINE_PROPERTY, "relation")
+
+# domain
+clear()
+UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x_)))) @ (0, DEFINE_CLASS, D, x_, [], Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x_)))
+All(R_, UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))))) @ ("domain_exists", CLOSING, 0)
+Domain = make_function("domain")
+All(R_, x_, (x_ *in_* Domain(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))) @ ("domain", DEFINE_FUNCTION, "domain", "domain_exists")
+
+# range
+clear()
+UniquelyExist(T, All(x_, (x_ *in_* T) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Right(y_) == x_)))) @ (0, DEFINE_CLASS, T, x_, [], Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Right(y_) == x_)))
+All(R_, UniquelyExist(T, All(x_, (x_ *in_* T) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Right(y_) == x_))))) @ ("range_exists", CLOSING, 0)
+Range = make_function("range")
+All(R_, x_, (x_ *in_* Range(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Right(y_) == x_))) @ ("range", DEFINE_FUNCTION, "range", "range_exists")
 
 # function
 clear()
