@@ -1380,9 +1380,29 @@ clear()
 Right = make_function("right")
 All(p_, Arity2(p_) >> ((Set(Left(p_)) & Set(Right(p_))) & (p_ == OrderedPair(Left(p_), Right(p_))))) @ ("right", DEFINE_FUNCTION, "right", "unique_right")
 
-# empty class
+# empty
 clear()
-EmptyClass = make_function("empty_class")
+Empty = make_function("empty")
 UniquelyExist(E, All(x_, x_ *in_* E) == false) @ (0, DEFINE_CLASS, E, x_, [], false)
-All(x_, (x_ *in_* EmptyClass()) == false) @ ("empty_class", DEFINE_FUNCTION, "empty_class", 0)
+All(x_, (x_ *in_* Empty()) == false) @ ("empty", DEFINE_FUNCTION, "empty", 0)
 
+# relation
+clear()
+Relation = make_property("relation")
+All(R_, Relation(R_) == All(x_, (x_ *in_* R_) >> Arity2(x_))) @ ("relation", DEFINE_PROPERTY, "relation")
+
+# function
+clear()
+Function = make_property("function")
+All(F_, Function(F_) == (Relation(F_) & All(x_, y_, z_, ((OrderedPair(x_, y_) *in_* F_) & (OrderedPair(x_, z_) *in_* F_)) >> (y_ == z_)))) @ ("funciton", DEFINE_PROPERTY, "function")
+
+# cap
+clear()
+UniquelyExist(C, (All(x_, (x_ *in_* C) == ((x_ *in_* A) & (x_ *in_* B))))) @ (0, DEFINE_CLASS, C, x_, [], ((x_ *in_* A) & (x_ *in_* B)))
+All(A_, B_, UniquelyExist(C, (All(x_, (x_ *in_* C) == ((x_ *in_* A_) & (x_ *in_* B_)))))) @ ("cap_exists", CLOSING, 0)
+cap = make_function("cap")
+All(A_, B_, x_, (x_ *in_* (A_ *cap* B_)) == ((x_ *in_* A_) & (x_ *in_* B_))) @ ("cap", DEFINE_FUNCTION, "cap", "cap_exists")
+
+# regularity
+clear()
+All(a_, (Set(a_) & (a_ != Empty())) >> Exist(u_, (u_ *in_* a) & ((u *cap* a) == Empty()))) @ ("regularity", AXIOM)
