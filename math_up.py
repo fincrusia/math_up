@@ -143,6 +143,48 @@ class Node:
                 return False
         return True
 
+    def __str__(self): # for debugging only
+        if self.type_ == TYPE_VARIABLE:
+            if self.counter < 52:
+                if self.counter < 26:
+                    return chr(ord('a') + self.counter) + "_"
+                else:
+                    return chr(ord('A') + self.counter - 26) + "_"
+            else:
+                count = self.counter % 52
+                if count < 26:
+                    return chr(ord('a') + count)
+                else:
+                    return chr(ord('A') + count - 26)
+
+        elif self.type_ in [TYPE_FUNCTION, TYPE_PROPERTY]:
+            ret = self.name + "("
+            for child in self.children[ : -1]:
+                ret += (str(child) + ", ")
+            ret += (str(self.children[-1]) + ")")
+            return ret
+        elif self.type_ == TYPE_ALL:
+            return "All(" + str(self.bound) + "," + str(self.statement) + ")"
+        elif self.type_ == TYPE_EXIST:
+            return "Exist(" + str(self.bound) + "," + str(self.statement) + ")"
+        elif self.type_ == TYPE_UNIQUELY_EXIST:
+            return "UniquelyExist(" + str(self.bound) + "," + str(self.statement) + ")"
+        elif self.type_ == TYPE_NOT:
+            return "(~ " + str(self.body) + ")"
+        elif self.type_ == TYPE_AND:
+            return "(" + str(self.left) + " & " + str(self.right) + ")"
+        elif self.type_ == TYPE_OR:
+            return "(" + str(self.left) + " | " + str(self.right) + ")"
+        elif self.type_ == TYPE_IMPLY:
+            return "(" + str(self.assumption) + " >> " + str(self.conclusion) + ")"
+        elif self.type_ == TYPE_IFF:
+            return "(" + str(self.left) + " & " + str(self.right) + ")"
+        elif self.type_ == TYPE_TRUE:
+            return "true"
+        elif self.type_ == TYPE_FALSE:
+            return "false"
+        else:
+            assert False
 
     # when you just assume an axiom:
     # your_axiom.accept()
@@ -866,6 +908,24 @@ def match(A, B, counters, mapping):
             else:
                 assert B.arguments[key] == value
 
+def go_right(target, name, *reasons):
+    cursor = proof_history[name]
+    bounds = set()
+    while cursor.type_ == TYPE_ALL:
+        bounds.add(cursor.bound.counter)
+        cursor = cursor.statement
+    assert cursor.type_ == TYPE_IFF
+    assert len(cursor.left.free) == len(cursor.right.free)
+    mapping = {}
+    match(cursor.right, target, bounds, mapping)
+    cursor = proof_history[name] @ -1
+    while cursor.type_ == TYPE_ALL:
+        cursor = cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter]) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+    return target @ (-1, TAUTOLOGY, -1, *reasons)
+
+GO_RIGHT = 37
+callbacks[GO_RIGHT] = go_right
+
 def by_theorem(target, name, *reasons):
     cursor = proof_history[name]
     bounds = set()
@@ -873,18 +933,18 @@ def by_theorem(target, name, *reasons):
         bounds.add(cursor.bound.counter)
         cursor = cursor.statement
     if cursor.type_ == TYPE_IMPLY:
-        assert len(cursor.assumption.free) == len(cursor.conclusion.free)
+        assert len(cursor.assumption.free) <= len(cursor.conclusion.free)
         mapping = {}
         conclusion = cursor.conclusion
         match(conclusion, target, bounds, mapping)
-        cursor = proof_history[name]
+        cursor = proof_history[name] @ -1
         while cursor.type_ == TYPE_ALL:
-            cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+            cursor = cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter]) @ (-1, PUT, mapping[cursor.bound.counter], -1)
         return target @ (-1, TAUTOLOGY, -1, *reasons)
     else:
         mapping = {}
         match(cursor, target, bounds, mapping)
-        cursor = proof_history[name]
+        cursor = proof_history[name] @ -1
         while cursor.type_ == TYPE_ALL:
             cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
         return target @ (-1, TAUTOLOGY, -1, *reasons)
@@ -904,7 +964,7 @@ def put_theorem(target, name, hidden, *reasons):
     mapping = {}
     conclusion = cursor.conclusion
     match(conclusion, target, bounds, mapping)
-    cursor = proof_history[name]
+    cursor = proof_history[name] @ -1
     while cursor.type_ == TYPE_ALL:
         if mapping.get(cursor.bound.counter) != None:
             cursor = (cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter])) @ (-1, PUT, mapping[cursor.bound.counter], -1)
@@ -944,6 +1004,7 @@ def closing(target, reason):
         closed = closed.statement.substitute(closed.bound, bound) @ (-1, PUT, bound, -1)
     for bound in reversed(bounds):
         closed = All(bound, closed) @ (-1, GENERALIZE, -1)
+    assert hash(closed) == hash(target)
     return closed
 
 CLOSING = 26
@@ -972,12 +1033,100 @@ All(A_, B_, ((A_ == B_) >> (B_ == A_))) @ ("equality_symmetry", CLOSING, 2)
 # equality transitivity
 clear()
 with (A == B) @ 0:
-    with (C == B) @ 1:
+    with (B == C) @ 1:
         (A == C) @ (2, REPLACE, 0, 1)
-    ((C == B) >> (A == C)) @ (3, DEDUCE)
-((A == B) >> ((C == B) >> (A == C))) @ (4, DEDUCE)
-(((A == B) & (C == B)) >> (A == C)) @ (5, TAUTOLOGY, 4)
-All(A_, B_, C_, (((A_ == B_) & (C_ == B_)) >> (A_ == C_))) @ ("equality_transitivity", CLOSING, 5)
+    ((B == C) >> (A == C)) @ (3, DEDUCE)
+((A == B) >> ((B == C) >> (A == C))) @ (4, DEDUCE)
+(((A == B) & (B == C)) >> (A == C)) @ (5, TAUTOLOGY, 4)
+All(A_, B_, C_, (((A_ == B_) & (B_ == C_)) >> (A_ == C_))) @ ("equality_transitivity", CLOSING, 5)
+
+# reflection generic
+def check_reflection(name, reflection):
+    reflection = proof_history[reflection]
+    assert reflection.is_proved()
+    assert reflection.type_ == TYPE_ALL
+    bound = reflection.bound
+    assert hash(Node(TYPE_PROPERTY, name = name, children = [bound, bound])) == hash(reflection.statement)
+
+# symmetry generic
+def check_symmetry(name, symmetry):
+    symmetry = proof_history[symmetry]
+    assert symmetry.is_proved()
+    assert symmetry.type_ == TYPE_ALL
+    A0 = symmetry.bound
+    assert symmetry.statement.type_ == TYPE_ALL
+    B0 = symmetry.statement.bound
+    assert hash(Node(TYPE_PROPERTY, name = name, children = [A0, B0]) >> Node(TYPE_PROPERTY, name = name, children = [B0, A0])) == hash(symmetry.statement.statement)
+
+# transitivity generic
+def check_transitivity(name, transitivity):
+    transitivity = proof_history[transitivity]
+    assert transitivity.is_proved()
+    assert transitivity.type_ == TYPE_ALL
+    A0 = transitivity.bound
+    assert transitivity.statement.type_ == TYPE_ALL
+    B0 = transitivity.statement.bound
+    assert transitivity.statement.statement.type_ == TYPE_ALL
+    C0 = transitivity.statement.statement.bound
+    assert hash((Node(TYPE_PROPERTY, name = name, children = [A0, B0]) & Node(TYPE_PROPERTY, name = name, children = [B0, C0])) >> Node(TYPE_PROPERTY, name = name, children = [A0, C0])) == hash(transitivity.statement.statement.statement)
+
+# equivalence relation generic
+equivalence_relations = {}
+def register_equivalence(name, reflection, symmetry, transitivity):
+    if isinstance(name, str):
+        assert equivalence_relations.get(name) == None
+    check_reflection(name, reflection)
+    check_symmetry(name, symmetry)
+    check_transitivity(name, transitivity)
+    equivalence_relations[name] = (reflection, symmetry, transitivity)
+
+register_equivalence("equal", "equality_reflection", "equality_symmetry", "equality_transitivity")
+
+def by_equivalence(target, *reasons):
+    assert target.type_ == TYPE_PROPERTY
+    name = target.name
+    reflection, symmetry, transitivity = equivalence_relations[name]
+    if not reasons:
+        return target @ (-2, BY_THEOREM, reflection)
+    else:
+        statements = []
+        for reason in reasons:
+            reason = proof_history[reason]
+            assert reason.is_proved()
+            assert reason.type_ == TYPE_PROPERTY
+            assert reason.name == name
+            statements.append(reason)
+        left = target.children[0]
+        cursor = left
+        marked = set()
+        for _ in range(0, len(statements)):
+            for index, reason in enumerate(statements):
+                if index in marked:
+                    continue
+                if hash(reason.children[0]) == hash(cursor):
+                    if len(marked) == 0:
+                        reason @ -2
+                    else:
+                        reason @ -3
+                        Node(TYPE_PROPERTY, name = name, children = [left, reason.children[1]]) @ (-2, PUT_THEOREM, transitivity, reason.children[0], -2, -3)
+                    cursor = reason.children[1]
+                    marked.add(index)
+                    break
+                elif hash(reason.children[1]) == hash(cursor):
+                    reason @ -3
+                    if len(marked) == 0:
+                        Node(TYPE_PROPERTY, name = name, children = [reason.children[1], reason.children[0]]) @ (-2, BY_THEOREM, symmetry, -3)
+                    else:
+                        Node(TYPE_PROPERTY, name = name, children = [reason.children[1], reason.children[0]]) @ (-3, BY_THEOREM, symmetry, -3)
+                        Node(TYPE_PROPERTY, name = name, children = [left, reason.children[0]]) @ (-2, PUT_THEOREM, transitivity, reason.children[1], -2, -3)
+                    cursor = reason.children[0]
+                    marked.add(index)
+                    break
+        return target @ (-2, TAUTOLOGY, -2)
+
+BY_EQUIVALENCE = 33
+callbacks[BY_EQUIVALENCE] = by_equivalence
+
 
 # unique up to equality
 clear()
@@ -985,7 +1134,8 @@ clear()
 Exist(B_, B_ == A) @ (1, FOUND, A, 0)
 (B == A) @ (2, LET, B, 1)
 (C == A) @ (3, LET, C, 1)
-(B == C) @ (4, PUT_THEOREM, "equality_transitivity", A, 2, 3)
+(A == C) @ (6, BY_THEOREM, "equality_symmetry", 3)
+(B == C) @ (4, PUT_THEOREM, "equality_transitivity", A, 2, 6)
 UniquelyExist(B_, B_ == A) @ (5, CLAIM_UNIQUE, 4)
 All(A_, UniquelyExist(B_, B_ == A_)) @ ("unique_up_to_equality", CLOSING, 5)
 
@@ -1016,9 +1166,170 @@ clear()
 All(a_, b_, (Set(a_) & Set(b_)) >> UniquelyExist(p_, Set(p_) & All(x_, ((x_ *in_* p_) == ((x_ == a_) | (x_ == b_)))))) @ ("pairing", AXIOM)
 
 # pair
+clear()
 Pair = make_function("pair")
 All(a_, b_, (Set(a_) & Set(b_)) >> (Set(Pair(a_, b_)) & All(x_, ((x_ *in_* Pair(a_, b_)) == ((x_ == a_) | (x_ == b_)))))) @ ("pair", DEFINE_FUNCTION, "pair", "pairing")
 
+# element of pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    with (x *in_* Pair(a, b)) @ 1:
+        (Set(Pair(a, b)) & All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b))))) @ (2, BY_THEOREM, "pair", 0)
+        All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b)))) @ (3, TAUTOLOGY, 2)
+        ((x *in_* Pair(a, b)) == ((x == a) | (x == b))) @ (4, PUT, x, 3)
+        ((x == a) | (x == b)) @ (5, TAUTOLOGY, 1, 4)
+    ((x *in_* Pair(a, b)) >> ((x == a) | (x == b))) @ (6, DEDUCE)
+((Set(a) & Set(b)) >> ((x *in_* Pair(a, b)) >> ((x == a) | (x == b)))) @ (7, DEDUCE)
+((((Set(a) & Set(b)) & (x *in_* Pair(a, b))) >> ((x == a) | (x == b)))) @ (8, TAUTOLOGY, 7)
+All(a_, b_, x_, (((Set(a_) & Set(b_)) & (x_ *in_* Pair(a_, b_)))) >> ((x_ == a_) | (x_ == b_))) @ ("element_of_pair", CLOSING, 8)
+
+
+# pair is a set
+clear()
+with (Set(a) & Set(b)) @ 0:
+    (Set(Pair(a, b)) & All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b))))) @ (1, BY_THEOREM, "pair", 0)
+    Set(Pair(a, b)) @ (2,TAUTOLOGY, 1)
+((Set(a) & Set(b)) >> Set(Pair(a, b))) @ (3, DEDUCE)
+All(a_, b_, ((Set(a_) & Set(b_)) >> Set(Pair(a_, b_)))) @ ("pair_is_a_set", CLOSING, 3)
+
+# left in pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    (Set(Pair(a, b)) & All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b))))) @ (1, BY_THEOREM, "pair", 0)
+    All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b)))) @ (2, TAUTOLOGY, 1)
+    ((a *in_* Pair(a, b)) == ((a == a) | (a == b))) @ (3, PUT, a, 2)
+    (a == a) @ (4, BY_EQUIVALENCE)
+    a *in_* Pair(a,b) @ (5, TAUTOLOGY, 3, 4)
+((Set(a) & Set(b)) >> (a *in_* Pair(a, b))) @ (6, DEDUCE)
+All(a_, b_, ((Set(a_) & Set(b_)) >> (a_ *in_* Pair(a_, b_)))) @ ("left_in_pair", CLOSING, 6)
+
+# right in pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    (Set(Pair(a, b)) & All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b))))) @ (1, BY_THEOREM, "pair", 0)
+    All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b)))) @ (2, TAUTOLOGY, 1)
+    ((b *in_* Pair(a, b)) == ((b == a) | (b == b))) @ (3, PUT, b, 2)
+    (b == b) @ (4, BY_EQUIVALENCE)
+    b *in_* Pair(a,b) @ (5, TAUTOLOGY, 3, 4)
+((Set(a) & Set(b)) >> (b *in_* Pair(a, b))) @ (6, DEDUCE)
+All(a_, b_, ((Set(a_) & Set(b_)) >> (b_ *in_* Pair(a_, b_)))) @ ("right_in_pair", CLOSING, 6)
+
+# element of singleton
+clear()
+with Set(a) @ 0:
+    (Set(Pair(a, a)) & All(x_, ((x_ *in_* Pair(a, a)) == ((x_ == a) | (x_ == a))))) @ (2, BY_THEOREM, "pair", 0)
+    All(x_, ((x_ *in_* Pair(a, a)) == ((x_ == a) | (x_ == a)))) @ (3, TAUTOLOGY, 2)
+    ((b *in_* Pair(a, a)) == ((b == a) | (b == a))) @ (4, PUT, b, 3)
+    with (b *in_* Pair(a, a)) @ 1:
+        (b == a) @ (5, TAUTOLOGY, 1, 4)
+    ((b *in_* Pair(a, a)) >> (b == a)) @ (6, DEDUCE)
+    (a *in_* Pair(a, a)) @ (8, BY_THEOREM, "left_in_pair", 0)
+    with (b == a) @ 7:
+        (b *in_* Pair(a, a)) @ (9, REPLACE, 8, 7)
+    ((b == a) >> (b *in_* Pair(a, a))) @ (10, DEDUCE)
+    ((b *in_* Pair(a, a)) == (b == a)) @ (11, TAUTOLOGY, 10, 6)
+(Set(a) >> ((b *in_* Pair(a, a)) == (b == a))) @ (12, DEDUCE)
+All(a_, b_, (Set(a_) >> (((b_ *in_* Pair(a_, a_))) == (b_ == a_)))) @ ("element_of_singleton", CLOSING, 12)
+
 # ordered pair
+clear()
 OrderedPair = make_function("ordered_pair")
 All(a_, b_, OrderedPair(a_, b_) == Pair(Pair(a_, a_), Pair(a_, b_))) @ ("ordered_pair", COMPOSITE, "ordered_pair")
+
+# comparison of ordered pairs
+clear()
+with (Set(a) & Set(b) & Set(c) & Set(d)) @ 0:
+    with (OrderedPair(a, b) == OrderedPair(c, d)) @ 1:
+        (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))) @ (2, BY_THEOREM, "ordered_pair")
+        (OrderedPair(c, d) == Pair(Pair(c, c), Pair(c, d))) @ (3, BY_THEOREM, "ordered_pair")
+
+        Set(Pair(a, a)) @ (4, BY_THEOREM, "pair_is_a_set", 0)
+        Set(Pair(a, b)) @ (5, BY_THEOREM, "pair_is_a_set", 0)
+        Set(Pair(c, c)) @ (6, BY_THEOREM, "pair_is_a_set", 0)
+        Set(Pair(c, d)) @ (7, BY_THEOREM, "pair_is_a_set", 0)
+
+        (Set(Pair(Pair(a, a), Pair(a, b))) & All(x_, ((x_ *in_* Pair(Pair(a, a), Pair(a, b))) == ((x_ == Pair(a, a)) | (x_ == Pair(a, b)))))) @ (8, BY_THEOREM, "pair", 4, 5)
+        (Set(Pair(Pair(c, c), Pair(c, d))) & All(x_, ((x_ *in_* Pair(Pair(c, c), Pair(c, d))) == ((x_ == Pair(c, c)) | (x_ == Pair(c, d)))))) @ (9, BY_THEOREM, "pair", 6, 7)
+
+        (Pair(Pair(a, a), Pair(a, b)) == Pair(Pair(c, c), Pair(c, d))) @ (14, BY_EQUIVALENCE, 1, 2, 3)
+
+        (Pair(a, a) *in_* Pair(Pair(a, a), Pair(a, b))) @ (15, BY_THEOREM, "left_in_pair", 4, 5)
+        (Pair(a, a) *in_* Pair(Pair(c, c), Pair(c, d))) @ (18, REPLACE, 15, 14)
+        All(x_, ((x_ *in_* Pair(Pair(c, c), Pair(c, d))) == ((x_ == Pair(c, c)) | (x_ == Pair(c, d))))) @ (16, TAUTOLOGY, 9)
+        ((Pair(a, a) *in_* Pair(Pair(c, c), Pair(c, d))) == ((Pair(a, a) == Pair(c, c)) | (Pair(a, a) == Pair(c, d)))) @ (17, PUT, Pair(a, a), 16)
+
+        ((Pair(a, a) == Pair(c, c)) | (Pair(a, a) == Pair(c, d))) @ (19, TAUTOLOGY, 18, 17)
+
+        with (Pair(a, a) == Pair(c, d)) @ 30:
+            (c *in_* Pair(c, d)) @ (31, BY_THEOREM, "left_in_pair", 0)
+            (c *in_* Pair(a, a)) @ (32, REPLACE, 31, 30)
+            ((c *in_* Pair(a, a)) == (c == a)) @ (33, BY_THEOREM, "element_of_singleton", 0)
+            (c == a) @ (34, TAUTOLOGY, 32, 33)
+
+            (d *in_* Pair(c, d)) @ (35, BY_THEOREM, "right_in_pair", 0)
+            (d *in_* Pair(a, a)) @ (36, REPLACE, 35, 30)
+            ((d *in_* Pair(a, a)) == (d == a)) @ (37, BY_THEOREM, "element_of_singleton", 0)
+            (d == a) @ (38, TAUTOLOGY, 36, 37)
+
+            (c == d) @ (39, BY_EQUIVALENCE, 34, 38)
+            (Pair(Pair(a, a), Pair(a, b)) == Pair(Pair(c, c), Pair(c, c))) @ (40, REPLACE, 14, 39)
+            (Pair(a, b) *in_* Pair(Pair(a, a), Pair(a, b))) @ (41, BY_THEOREM, "right_in_pair", 4, 5)
+            (Pair(a, b) *in_* Pair(Pair(c, c), Pair(c, c))) @ (42, REPLACE, 41, 40)
+            ((Pair(a, b) *in_* Pair(Pair(c, c), Pair(c, c))) == (Pair(a, b) == Pair(c, c))) @ (43, BY_THEOREM, "element_of_singleton", 6)
+            (Pair(a, b) == Pair(c, c)) @ (44, TAUTOLOGY, 42, 43)
+            (b *in_* Pair(a, b)) @ (45, BY_THEOREM, "right_in_pair", 0)
+            (b *in_* Pair(c, c)) @ (46, REPLACE, 45, 44)
+            ((b *in_* Pair(c, c)) == (b == c)) @ (47, BY_THEOREM, "element_of_singleton", 0)
+            (b == c) @ (48, TAUTOLOGY, 47, 46)
+            
+            (a == c) @ (49, BY_EQUIVALENCE, 34)
+            (b == d) @ (50, BY_EQUIVALENCE, 34, 38, 48)
+            ((a == c) & (b == d)) @ (51, TAUTOLOGY, 49, 50)
+        ((Pair(a, a) == Pair(c, d)) >> ((a == c) & (b == d))) @ (52, DEDUCE)
+
+
+        with (Pair(a, a) != Pair(c, d)) @ 60:
+            (Pair(a, a) == Pair(c, c)) @ (20, TAUTOLOGY, 19, 60)
+
+            (a *in_* Pair(a, a)) @ (21, BY_THEOREM, "left_in_pair", 0)
+            (a *in_* Pair(c, c)) @ (22, REPLACE, 21, 20)
+            ((a *in_* Pair(c, c)) == (a == c)) @ (23, BY_THEOREM, "element_of_singleton", 0)
+            (a == c) @ (24, TAUTOLOGY, 23, 22)
+
+            with (d == a) @ 58:
+                (a *in_* Pair(a, a)) @ (59, BY_THEOREM, "left_in_pair", 0)
+                (d *in_* Pair(a, a)) @ (70, REPLACE, 59, 58)
+                ((d *in_* Pair(a, a)) == (d == a)) @ (61, BY_THEOREM, "element_of_singleton", 0)
+                (d == a) @ (62, TAUTOLOGY, 70, 61)
+                (c == d) @ (63, BY_EQUIVALENCE, 62, 24)
+                (Pair(c, c) == Pair(c, d)) @ (64, REPLACE, 20, 63)
+                (Pair(a, a) == Pair(c, d)) @ (65, BY_EQUIVALENCE, 20, 64)
+                false @ (66, TAUTOLOGY, 65, 60)
+            ((d == a) >> false) @ (67, DEDUCE)
+            (d != a) @ (71, TAUTOLOGY, 67)
+            
+            (Pair(c, d) *in_* Pair(Pair(c, c), Pair(c, d))) @ (72, BY_THEOREM, "right_in_pair", 6, 7)
+            (Pair(c, d) *in_* Pair(Pair(a, a), Pair(a, b))) @ (73, REPLACE, 72, 14)
+
+            ((Pair(c, d) == Pair(a, a)) | (Pair(c, d) == Pair(a, b))) @ (74, BY_THEOREM, "element_of_pair", 4, 5, 73)
+            with (Pair(c, d) == Pair(a, a)) @ 75:
+                (Pair(a, a) == Pair(c, d)) @ (76, BY_EQUIVALENCE, 75)
+                false @ (77, TAUTOLOGY, 76, 60)
+            ((Pair(c, d) == Pair(a, a)) >> false) @ (78, DEDUCE)
+            (Pair(c, d) == Pair(a, b)) @ (79, TAUTOLOGY, 78, 74)
+
+            (d *in_* Pair(c, d)) @ (80, BY_THEOREM, "right_in_pair", 0)
+            (d *in_* Pair(a, b)) @ (81, REPLACE, 80, 79)
+            ((d == a) | (d == b)) @ (82, BY_THEOREM, "element_of_pair", 81, 0)
+            (d == b) @ (83, TAUTOLOGY, 71, 82)
+            (b == d) @ (84, BY_EQUIVALENCE, 83)
+
+            ((a == c) & (b == d)) @ (85, TAUTOLOGY, 84, 24)
+        ((Pair(a, a) != Pair(c, d)) >> ((a == c) & (b == d))) @ (86, DEDUCE)
+
+        ((a == c) & (b == d)) @ (87, TAUTOLOGY, 86, 52)
+    ((OrderedPair(a, b) == OrderedPair(c, d)) >> ((a == c) & (b == d))) @ (88, DEDUCE)
+((Set(a) & Set(b) & Set(c) & Set(d)) >> ((OrderedPair(a, b) == OrderedPair(c, d)) >> ((a == c) & (b == d)))) @ (89, DEDUCE)
+(((Set(a) & Set(b) & Set(c) & Set(d)) & (OrderedPair(a, b) == OrderedPair(c, d))) >> ((a == c) & (b == d))) @ (90, TAUTOLOGY, 89)
+
+All(a_, b_, c_, d_, ((Set(a_) & Set(b_) & Set(c_) & Set(d_)) & (OrderedPair(a_, b_) == OrderedPair(c_, d_))) >> ((a_ == c_) & (b_ == d_))) @ ("comparison_of_ordered_pairs", CLOSING, 90)
