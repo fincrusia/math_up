@@ -606,18 +606,6 @@ class Node:
     def __pow__(self, B):
         return self.overload(B)
 
-    def __lt__(self, B):
-        return self.overload(B)
-
-    def __le__(self, B):
-        return self.overload(B)
-    
-    def __gt__(self, B):
-        return self.overload(B)
-
-    def __ge__(self, B):
-        return self.overload(B)
-
     def __lshift__(self, B):
         return self.overload(B)
 
@@ -670,6 +658,12 @@ class Node:
                 return self.let(*arguments).save(save_as)
             else:
                 return callbacks[inference](self, *arguments).save(save_as)
+
+    def __getitem__(self, B): # reserved!
+        assert not self.is_sentence()
+        assert isinstance(B, Node)
+        assert not b.is_sentence()
+        return Node(TYPE_FUNCTION, name = "image", children = [self, B])
 
     def __call__(self, b): # reserved!
         assert not self.is_sentence()
@@ -1478,3 +1472,61 @@ All(A_, B_, x_, (x_ *in_* (A_ *cap* B_)) == ((x_ *in_* A_) & (x_ *in_* B_))) @ (
 # regularity
 clear()
 All(a_, (Set(a_) & (a_ != Empty())) >> Exist(u_, (u_ *in_* a) & ((u *cap* a) == Empty()))) @ ("regularity", AXIOM)
+
+# image
+clear()
+UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, (a_ *in_* A) & (a_ == F(x_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, (a_ *in_* A) & (a_ == F(x_))))
+All(F_, A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, (a_ *in_* A_) & (a_ == F_(x_)))))) @ (1, CLOSING, 0)
+Image = make_function("image")
+All(F_, A_, x_, (x_ *in_* F_[A_]) == Exist(a_, (a_ *in_* A_) & (a_ == F_(x_)))) @ ("image", DEFINE_FUNCTION, "image", 1)
+
+# replacement
+clear()
+All(F_, a_, (Function(F_) & Set(a_)) >> Set(F_[a_])) @ ("replacement", AXIOM)
+
+# union
+clear()
+UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (x_ *in_* a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (x_ *in_* a_))))
+All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_)))))) @ (1, CLOSING, 0)
+Union = make_function("union")
+All(A_, All(x_, (x_ *in_* Union(A_)) == Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_))))) @ ("union", DEFINE_FUNCTION, "union", 1)
+
+# union of set is set
+clear()
+All(a_, Set(a_) >> Set(Union(a_))) @ ("union_of_set_is_set", AXIOM)
+
+# inclusion
+clear()
+inc = make_property("inclusion")
+All(A_, B_, (A_ *inc* B_) == All(x_, (x_ *in_* A_) >> (x_ *in_* B_))) @ ("inclusion", DEFINE_PROPERTY, "inclusion")
+
+# power
+clear()
+UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (x_ *inc* a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (x_ *inc* a_))))
+All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_)))))) @ (1, CLOSING, 0)
+Power = make_function("power")
+All(A_, All(x_, (x_ *in_* Power(A_)) == Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_))))) @ ("power", DEFINE_FUNCTION, "power", 1)
+
+# power_of_set_is_set
+clear()
+All(a_, Set(a_) >> Set(Power(a_))) @ ("power_of_set_is_set", AXIOM)
+
+# cup
+clear()
+UniquelyExist(C, All(x_, (x_ *in_* C) == ((x *in_* A) | (x *in_* B)))) @ (0, DEFINE_CLASS, C, x_, [], ((x *in_* A) | (x *in_* B)))
+All(A_, B_, UniquelyExist(C, All(x_, (x_ *in_* C) == ((x *in_* A_) | (x *in_* B_))))) @ (1, CLOSING, 0)
+cup = make_function("cup")
+All(A_, B_, All(x_, (x_ *in_* (A_ *cup* B_)) == ((x *in_* A_) | (x *in_* B_)))) @ ("cup", DEFINE_FUNCTION, "cup", 1)
+
+# successor
+clear()
+Succ = make_function("successor")
+All(x_, Succ(x_) == (x_ *cup* Pair(x_, x_))) @ ("successor", COMPOSITE, "successor")
+
+# infinity
+clear()
+Exist(a_, (Set(a_) & (Empty() *in_* a_)) & All(x_, (x_ *in_* a_) >> Succ(a_))) @ ("infinity", AXIOM)
+
+# choice
+clear()
+Exist(G_, Function(G_) & All(a_, (Set(a_) & Exist(x_, x_ *in_* a_)) >> (G_(a_) *in_* a_))) @ ("choice", AXIOM)
