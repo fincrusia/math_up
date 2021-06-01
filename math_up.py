@@ -41,7 +41,6 @@ LET = 30
 GENERALIZE = 31
 
 callbacks = {}
-
 proof_history = {}
 class Node:
     counter = 0
@@ -503,24 +502,27 @@ class Node:
 
         def Tuple(*arguments):
             arity = len(arguments)
-            if arity == 0:
-                return Node(TYPE_FUNCTION, name = "empty", children = [])
-            elif arity == 1:
-                return arguments[0]
-            elif arity == 2:
+            if arity == 2:
                 return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], arguments[1]])
-            else:
+            elif arity > 2:
                 return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
+            else:
+                assert False
 
-        for input in reversed(inputs):
-            statement = Node(TYPE_AND, left = Node(TYPE_PROPERTY, name = "set", children = [input]), right = statement)
-        statement = Node(TYPE_AND, Node(TYPE_PROPERTY, name = "equal", children = [element, Tuple(inputs)]), statement)
-        for input in reversed(inputs):
-            statement = Node(TYPE_UNIQUELY_EXIST, bound = input, statement = statement)
-        statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "membership", children = [element, output]), right = statement)
-        statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = statement))
-        assert hash(self) == hash(statement)
-        return self.accept()
+        if len(inputs) == 0:
+            return Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "in", children = [element, output]), right = statement))).accept()
+        elif len(inputs) == 1:
+            assert False # DEFINE_CLASS with a single input -> try not to use the input
+        else:
+            for input in reversed(inputs):
+                statement = Node(TYPE_AND, left = Node(TYPE_PROPERTY, name = "set", children = [input]), right = statement)
+            statement = Node(TYPE_AND, Node(TYPE_PROPERTY, name = "equal", children = [element, Tuple(inputs)]), statement)
+            for input in reversed(inputs):
+                statement = Node(TYPE_UNIQUELY_EXIST, bound = input, statement = statement)
+            statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "membership", children = [element, output]), right = statement)
+            statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = statement))
+            assert hash(self) == hash(statement)
+            return self.accept()
 
     # duality
     # not All(x, P(x)) iff Exist not(x, P(x))
@@ -715,15 +717,12 @@ def UniquelyExist(*arguments):
 
 def Tuple(*arguments):
     arity = len(arguments)
-    if arity == 0:
-        return Node(TYPE_FUNCTION, name = "empty", children = [])
-    elif arity == 1:
-        return arguments[0]
-    elif arity == 2:
+    if arity == 2:
         return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], arguments[1]])
-    else:
+    elif arity > 2:
         return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
-
+    else:
+        assert False
 
 # used in theorems
 a_ = New()
@@ -1190,7 +1189,7 @@ with (Set(a) & Set(b)) @ 0:
     (Set(Pair(a, b)) & All(x_, ((x_ *in_* Pair(a, b)) == ((x_ == a) | (x_ == b))))) @ (1, BY_THEOREM, "pair", 0)
     Set(Pair(a, b)) @ (2,TAUTOLOGY, 1)
 ((Set(a) & Set(b)) >> Set(Pair(a, b))) @ (3, DEDUCE)
-All(a_, b_, ((Set(a_) & Set(b_)) >> Set(Pair(a_, b_)))) @ ("pair_is_a_set", CLOSING, 3)
+All(a_, b_, ((Set(a_) & Set(b_)) >> Set(Pair(a_, b_)))) @ ("pair_is_set", CLOSING, 3)
 
 # left in pair
 clear()
@@ -1243,10 +1242,10 @@ with (Set(a) & Set(b) & Set(c) & Set(d)) @ 0:
         (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))) @ (2, BY_THEOREM, "ordered_pair")
         (OrderedPair(c, d) == Pair(Pair(c, c), Pair(c, d))) @ (3, BY_THEOREM, "ordered_pair")
 
-        Set(Pair(a, a)) @ (4, BY_THEOREM, "pair_is_a_set", 0)
-        Set(Pair(a, b)) @ (5, BY_THEOREM, "pair_is_a_set", 0)
-        Set(Pair(c, c)) @ (6, BY_THEOREM, "pair_is_a_set", 0)
-        Set(Pair(c, d)) @ (7, BY_THEOREM, "pair_is_a_set", 0)
+        Set(Pair(a, a)) @ (4, BY_THEOREM, "pair_is_set", 0)
+        Set(Pair(a, b)) @ (5, BY_THEOREM, "pair_is_set", 0)
+        Set(Pair(c, c)) @ (6, BY_THEOREM, "pair_is_set", 0)
+        Set(Pair(c, d)) @ (7, BY_THEOREM, "pair_is_set", 0)
 
         (Set(Pair(Pair(a, a), Pair(a, b))) & All(x_, ((x_ *in_* Pair(Pair(a, a), Pair(a, b))) == ((x_ == Pair(a, a)) | (x_ == Pair(a, b)))))) @ (8, BY_THEOREM, "pair", 4, 5)
         (Set(Pair(Pair(c, c), Pair(c, d))) & All(x_, ((x_ *in_* Pair(Pair(c, c), Pair(c, d))) == ((x_ == Pair(c, c)) | (x_ == Pair(c, d)))))) @ (9, BY_THEOREM, "pair", 6, 7)
@@ -1333,3 +1332,57 @@ with (Set(a) & Set(b) & Set(c) & Set(d)) @ 0:
 (((Set(a) & Set(b) & Set(c) & Set(d)) & (OrderedPair(a, b) == OrderedPair(c, d))) >> ((a == c) & (b == d))) @ (90, TAUTOLOGY, 89)
 
 All(a_, b_, c_, d_, ((Set(a_) & Set(b_) & Set(c_) & Set(d_)) & (OrderedPair(a_, b_) == OrderedPair(c_, d_))) >> ((a_ == c_) & (b_ == d_))) @ ("comparison_of_ordered_pairs", CLOSING, 90)
+
+# arity 2
+Arity2 = make_property("arity_2")
+All(p_, Arity2(p_) == Exist(a_, b_, (Set(a_) & Set(b_)) & (p_ == OrderedPair(a_, b_)))) @ ("arity_2", DEFINE_PROPERTY, "arity_2")
+
+# unique left
+clear()
+with Arity2(p) @ 0:
+    (Arity2(p) == Exist(a_, b_, (Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_)))) @ (1, PUT, p, "arity_2")
+    Exist(a_, b_, (Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_))) @ (2, TAUTOLOGY, 0, 1)
+    Exist(b_, (Set(c) & Set(b_)) & (p == OrderedPair(c, b_))) @ (3, LET, c, 2)
+    ((Set(c) & Set(d)) & (p == OrderedPair(c, d))) @ (4, LET, d, 3)
+    Exist(b_, (Set(e) & Set(b_)) & (p == OrderedPair(e, b_))) @ (5, LET, e, 2)
+    ((Set(e) & Set(f)) & (p == OrderedPair(e, f))) @ (6, LET, f, 5)
+    (p == OrderedPair(c, d)) @ (7, TAUTOLOGY, 4)
+    (p == OrderedPair(e, f)) @ (8, TAUTOLOGY, 6)
+    (OrderedPair(c, d) == OrderedPair(e, f)) @ (9, BY_EQUIVALENCE, 7, 8)
+    ((c == e) & (d == f)) @ (10, BY_THEOREM, "comparison_of_ordered_pairs", 4, 6, 9)
+    (c == e) @ (11, TAUTOLOGY, 10)
+    UniquelyExist(a_, Exist(b_, (Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_)))) @ (12, CLAIM_UNIQUE, 11)
+(Arity2(p) >> UniquelyExist(a_, Exist(b_, (Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_))))) @ (13, DEDUCE)
+All(p_, Arity2(p_) >> UniquelyExist(a_, Exist(b_, (Set(a_) & Set(b_)) & (p_ == OrderedPair(a_, b_))))) @ ("unique_left", CLOSING, 13)
+
+# left
+clear()
+Left = make_function("left")
+All(p_, Arity2(p_) >> Exist(b_, (Set(Left(p_)) & Set(b_)) & (p_ == OrderedPair(Left(p_), b_)))) @ ("left", DEFINE_FUNCTION, "left", "unique_left")
+
+# unique right
+clear()
+with Arity2(p) @ 0:
+    Exist(b_, (Set(Left(p)) & Set(b_)) & (p == OrderedPair(Left(p), b_))) @ (1, BY_THEOREM, "left", 0)
+    ((Set(Left(p)) & Set(c)) & (p == OrderedPair(Left(p), c))) @ (2, LET, c, 1)
+    ((Set(Left(p)) & Set(d)) & (p == OrderedPair(Left(p), d))) @ (3, LET, d, 1)
+    (p == OrderedPair(Left(p), c)) @ (4, TAUTOLOGY, 2)
+    (p == OrderedPair(Left(p), d)) @ (5, TAUTOLOGY, 3)
+    (OrderedPair(Left(p), c) == OrderedPair(Left(p), d)) @ (6, BY_EQUIVALENCE, 4, 5)
+    ((Left(p) == Left(p)) & (c == d)) @ (7, BY_THEOREM, "comparison_of_ordered_pairs", 2, 3, 6)
+    (c == d) @ (8, TAUTOLOGY, 7)
+    UniquelyExist(b_, (Set(Left(p)) & Set(b_)) & (p == OrderedPair(Left(p), b_))) @ (9, CLAIM_UNIQUE, 8)
+(Arity2(p) >> UniquelyExist(b_, (Set(Left(p)) & Set(b_)) & (p == OrderedPair(Left(p), b_)))) @ (10, DEDUCE)
+All(p_, Arity2(p_) >> UniquelyExist(b_, (Set(Left(p_)) & Set(b_)) & (p_ == OrderedPair(Left(p_), b_)))) @ ("unique_right", CLOSING, 10)
+
+# right
+clear()
+Right = make_function("right")
+All(p_, Arity2(p_) >> ((Set(Left(p_)) & Set(Right(p_))) & (p_ == OrderedPair(Left(p_), Right(p_))))) @ ("right", DEFINE_FUNCTION, "right", "unique_right")
+
+# empty class
+clear()
+EmptyClass = make_function("empty_class")
+UniquelyExist(E, All(x_, x_ *in_* E) == false) @ (0, DEFINE_CLASS, E, x_, [], false)
+All(x_, (x_ *in_* EmptyClass()) == false) @ ("empty_class", DEFINE_FUNCTION, "empty_class", 0)
+
