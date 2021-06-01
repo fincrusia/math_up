@@ -671,6 +671,12 @@ class Node:
             else:
                 return callbacks[inference](self, *arguments).save(save_as)
 
+    def __call__(self, b): # reserved!
+        assert not self.is_sentence()
+        assert isinstance(b, Node)
+        assert not b.is_sentence()
+        return Node(TYPE_FUNCTION, name = "put", children = [self, b])
+
     def __eq__(self, B): # reserved!
         if B == None:
             return False
@@ -936,7 +942,6 @@ def by_theorem(target, name, *reasons):
         bounds.add(cursor.bound.counter)
         cursor = cursor.statement
     if cursor.type_ == TYPE_IMPLY:
-        assert len(cursor.assumption.free) <= len(cursor.conclusion.free)
         mapping = {}
         conclusion = cursor.conclusion
         match(conclusion, target, bounds, mapping)
@@ -1411,7 +1416,57 @@ All(R_, x_, (x_ *in_* Range(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Ri
 # function
 clear()
 Function = make_property("function")
-All(F_, Function(F_) == (Relation(F_) & All(x_, y_, z_, ((OrderedPair(x_, y_) *in_* F_) & (OrderedPair(x_, z_) *in_* F_)) >> (y_ == z_)))) @ ("funciton", DEFINE_PROPERTY, "function")
+All(F_, Function(F_) == (Relation(F_) & All(a_, b_, (((a_ *in_* F_) & (b_ *in_* F_)) & (Left(a_) == Left(b_))) >> (a_ == b_)))) @ ("function", DEFINE_PROPERTY, "function")
+
+# unique pair in function
+clear()
+with Function(F) @ 0:
+    with x *in_* Domain(F) @ 1:
+        ((x *in_* Domain(F)) == Exist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x))) @ (2, BY_THEOREM, "domain")
+        Exist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x)) @ (3, TAUTOLOGY, 1, 2)
+        (Function(F) == (Relation(F) & All(a_, b_, (((a_ *in_* F) & (b_ *in_* F)) & (Left(a_) == Left(b_))) >> (a_ == b_)))) @ (4, BY_THEOREM, "function", 0)
+        Relation(F) @ (5, TAUTOLOGY, 0, 4)
+        All(a_, b_, (((a_ *in_* F) & (b_ *in_* F)) & (Left(a_) == Left(b_))) >> (a_ == b_)) @ (6, TAUTOLOGY, 0, 4)
+
+        (((a *in_* F) & Arity2(a)) & (Left(a) == x)) @ (7, LET, a, 3)
+        (((b *in_* F) & Arity2(b)) & (Left(b) == x)) @ (8, LET, b, 3)
+        (Left(a) == x) @ (9, TAUTOLOGY, 7)
+        (Left(b) == x) @ (10, TAUTOLOGY, 8)
+        (Left(a) == Left(b)) @ (11, BY_EQUIVALENCE, 9, 10)
+        (a == b) @ (12, BY_THEOREM, 6, 7, 8, 11)
+        UniquelyExist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x)) @ (13, CLAIM_UNIQUE, 12)
+    ((x *in_* Domain(F)) >> UniquelyExist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x))) @ (14, DEDUCE)
+((Function(F)) >> ((x *in_* Domain(F)) >> UniquelyExist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x)))) @ (15, DEDUCE)
+(((Function(F) & (x *in_* Domain(F)))) >> UniquelyExist(y_, ((y_ *in_* F) & Arity2(y_)) & (Left(y_) == x))) @ (16, TAUTOLOGY, 15)
+All(F_, x_, ((Function(F_) & (x_ *in_* Domain(F_)))) >> UniquelyExist(y_, ((y_ *in_* F_) & Arity2(y_)) & (Left(y_) == x_))) @ ("unique_pair_in_function", CLOSING, 16)
+
+# find pair
+clear()
+FindPair = make_function("find_pair")
+All(F_, x_, ((Function(F_) & (x_ *in_* Domain(F_)))) >> (((FindPair(F_, x_) *in_* F_) & Arity2(FindPair(F_, x_))) & (Left(FindPair(F_, x_)) == x_))) @ ("find_pair", DEFINE_FUNCTION, "find_pair", "unique_pair_in_function")
+
+# put
+clear()
+Put = make_function("put")
+All(F_, x_, F_(x_) == Right(FindPair(F_, x_))) @ ("put", COMPOSITE, "put")
+
+# structure of function
+clear()
+with Function(F) @ 0:
+    with (x *in_* Domain(F)) @ 1:
+        (F(x) == Right(FindPair(F, x))) @ (2, BY_THEOREM, "put")
+        (((FindPair(F, x) *in_* F) & Arity2(FindPair(F, x))) & (Left(FindPair(F, x)) == x)) @ (3, BY_THEOREM, "find_pair", 0, 1)
+        ((Set(Left(FindPair(F, x))) & Set(Right(FindPair(F, x)))) & (FindPair(F, x) == OrderedPair(Left(FindPair(F, x)), Right(FindPair(F, x))))) @ (4, BY_THEOREM, "right", 3)
+        (FindPair(F, x) == OrderedPair(Left(FindPair(F, x)), Right(FindPair(F, x)))) @ (5, TAUTOLOGY, 4)
+        (Left(FindPair(F, x)) == x) @ (6, TAUTOLOGY, 3)
+        (FindPair(F, x) == OrderedPair(x, Right(FindPair(F, x)))) @ (7, REPLACE, 5, 6)
+        (FindPair(F, x) == OrderedPair(x, F(x))) @ (8, REPLACE, 7, 2)
+        (FindPair(F, x) *in_* F) @ (9, TAUTOLOGY, 3)
+        (OrderedPair(x, F(x)) *in_* F) @ (10, REPLACE, 9, 8)
+    ((x *in_* Domain(F)) >> (OrderedPair(x, F(x)) *in_* F)) @ (11, DEDUCE)
+(Function(F) >> ((x *in_* Domain(F)) >> (OrderedPair(x, F(x)) *in_* F))) @ (12, DEDUCE)
+((Function(F) & (x *in_* Domain(F))) >> (OrderedPair(x, F(x)) *in_* F)) @ (13, TAUTOLOGY, 12)
+All(F_, x_, (Function(F_) & (x_ *in_* Domain(F_))) >> (OrderedPair(x_, F_(x_)) *in_* F_)) @ ("structure_of_function", CLOSING, 13)
 
 # cap
 clear()
