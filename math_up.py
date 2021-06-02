@@ -485,48 +485,24 @@ class Node:
     # this is actually not an axiom, but is PROVABLE, due to Goedel
     # however, proving it requires recursively break down all the higher-level definitions to the primitive ones
     # I'm afraid our computers would not have enough resourse to do such tedious computation...
-
-    # usage example for arity == 2
-    # output : FRESH variable C
-    # element : FRESH variable x
-    # inputs : a, b
-    # statement : P(a, b) # must includes a, b as FREE variables
-    # 
-    # "define" returns the following proved:
-    # UniquelyExist(C, All(x, (x in C) iff UniquelyExist(a, UniquelyExist(b, (x == Tuple(a,b)) and Set(a) and Set(b) and P(a, b)))))
-    def define_class(self, output, element, inputs, statement):
-        assert statement.is_sentence()
-        for input in inputs:
-            assert input.type_ == TYPE_VARIABLE
-            assert input in statement.free
+    # UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x) & (...))))
+    def define_class(self, output):
         assert output.type_ == TYPE_VARIABLE
         assert output.is_fresh()
-
-        def Tuple(*arguments):
-            arity = len(arguments)
-            if arity == 2:
-                return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], arguments[1]])
-            elif arity > 2:
-                return Node(TYPE_FUNCTION, name = "ordered_pair", children = [arguments[0], Tuple(*arguments[1 : ])])
-            else:
-                assert False
-
-        if len(inputs) == 0:
-            statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "in", children = [element, output]), right = statement)))
-            assert hash(self) == hash(statement)
-            return self.accept()
-        elif len(inputs) == 1:
-            assert False # DEFINE_CLASS with a single input -> try not to use the input
-        else:
-            for input in reversed(inputs):
-                statement = Node(TYPE_AND, left = Node(TYPE_PROPERTY, name = "set", children = [input]), right = statement)
-            statement = Node(TYPE_AND, Node(TYPE_PROPERTY, name = "equal", children = [element, Tuple(inputs)]), statement)
-            for input in reversed(inputs):
-                statement = Node(TYPE_UNIQUELY_EXIST, bound = input, statement = statement)
-            statement = Node(TYPE_IFF, left = Node(TYPE_PROPERTY, name = "membership", children = [element, output]), right = statement)
-            statement = Node(TYPE_UNIQUELY_EXIST, bound = output, statement = Node(TYPE_ALL, bound = element, statement = statement))
-            assert hash(self) == hash(statement)
-            return self.accept()
+    
+        cursor = self
+        assert cursor.type_ == TYPE_UNIQUELY_EXIST
+        assert hash(cursor.bound) == hash(output)
+        cursor = cursor.statement
+        assert cursor.type_ == TYPE_ALL
+        element = cursor.bound
+        cursor = cursor.statement
+        assert cursor.type_ == TYPE_IFF
+        assert hash(cursor.left) == hash(Node(TYPE_PROPERTY, name = "in", children = [element, output]))
+        cursor = cursor.right
+        assert cursor.type_ == TYPE_AND
+        assert hash(cursor.left) == hash(Node(TYPE_PROPERTY, name = "set", children = [element]))
+        return self.accept()
 
     # duality
     # not All(x, P(x)) iff Exist not(x, P(x))
@@ -912,24 +888,6 @@ def match(A, B, counters, mapping):
             else:
                 assert B.arguments[key] == value
 
-def go_right(target, name, *reasons):
-    cursor = proof_history[name]
-    bounds = set()
-    while cursor.type_ == TYPE_ALL:
-        bounds.add(cursor.bound.counter)
-        cursor = cursor.statement
-    assert cursor.type_ == TYPE_IFF
-    assert len(cursor.left.free) == len(cursor.right.free)
-    mapping = {}
-    match(cursor.right, target, bounds, mapping)
-    cursor = proof_history[name] @ -1
-    while cursor.type_ == TYPE_ALL:
-        cursor = cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter]) @ (-1, PUT, mapping[cursor.bound.counter], -1)
-    return target @ (-1, TAUTOLOGY, -1, *reasons)
-
-GO_RIGHT = 37
-callbacks[GO_RIGHT] = go_right
-
 def by_theorem(target, name, *reasons):
     cursor = proof_history[name]
     bounds = set()
@@ -977,6 +935,58 @@ def put_theorem(target, name, hidden, *reasons):
 
 PUT_THEOREM = 28
 callbacks[PUT_THEOREM] = put_theorem
+
+
+# bicondition
+def try_match(A, B, counters, mapping):
+    if A.type_ == TYPE_VARIABLE:
+        if A.counter in counters:
+            if mapping.get(A.counter) != None:
+                if hash(mapping[A.counter]) != hash(B):
+                    return False
+            else:
+                mapping[A.counter] = B
+    else:
+        if A.type_ != B.type_:
+            return False
+        for key, value in A.arguments.items():
+            if isinstance(value, list):
+                for index, element in enumerate(value):
+                    if not try_match(element, B.arguments[key][index], counters, mapping):
+                        return False
+            elif isinstance(value, Node):
+                if not try_match(value, B.arguments[key], counters, mapping):
+                    return False
+            else:
+                if B.arguments[key] != value:
+                    return False
+    return True
+
+def bicondition(target, name, *reasons):
+    cursor = proof_history[name]
+    bounds = set()
+    while cursor.type_ == TYPE_ALL:
+        bounds.add(cursor.bound.counter)
+        cursor = cursor.statement
+    assert cursor.type_ == TYPE_IFF
+    mapping = {}
+    conclusion = cursor.right
+    if try_match(conclusion, target, bounds, mapping):
+        cursor = proof_history[name] @ -1
+        while cursor.type_ == TYPE_ALL:
+            cursor = cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter]) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+        return target @ (-1, TAUTOLOGY, -1, *reasons)
+    mapping = {}
+    conclusion = cursor.left
+    if try_match(conclusion, target, bounds, mapping):
+        cursor = proof_history[name] @ -1
+        while cursor.type_ == TYPE_ALL:
+            cursor = cursor.statement.substitute(cursor.bound, mapping[cursor.bound.counter]) @ (-1, PUT, mapping[cursor.bound.counter], -1)
+        return target @ (-1, TAUTOLOGY, -1, *reasons)
+    assert False
+
+BICONDITION = 38
+callbacks[BICONDITION] = bicondition
 
 def make_property(name):
     def new_property(*arguments):
@@ -1476,8 +1486,11 @@ All(a_, b_, (Set(a_) & Set(b_)) >> (b_ == Right(OrderedPair(a_, b_)))) @ ("right
 # empty
 clear()
 Empty = make_function("empty")
-UniquelyExist(E, All(x_, (x_ *in_* E) == false)) @ (0, DEFINE_CLASS, E, x_, [], false)
-All(x_, (x_ *in_* Empty()) == false) @ ("empty", DEFINE_FUNCTION, "empty", 0)
+UniquelyExist(E, All(x_, (x_ *in_* E) == (Set(x_) & false))) @ (0, DEFINE_CLASS, E)
+All(x_, (x_ *in_* Empty()) == (Set(x_) & false)) @ (1, DEFINE_FUNCTION, "empty", 0)
+((x *in_* Empty()) == (Set(x) & false)) @ (2, PUT, x, 1)
+((x *in_* Empty()) == false) @ (3, TAUTOLOGY, 2)
+All(x_, (x_ *in_* Empty()) == false) @ ("empty", CLOSING, 3)
 
 # relation
 clear()
@@ -1486,10 +1499,32 @@ All(R_, (Relation(R_) == All(x_, (x_ *in_* R_) >> Arity2(x_)))) @ ("relation", D
 
 # domain
 clear()
-UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x_)))) @ (0, DEFINE_CLASS, D, x_, [], Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x_)))
-All(R_, UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))))) @ ("domain_exists", CLOSING, 0)
+UniquelyExist(D, All(x_, (x_ *in_* D) == (Set(x_) & Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x_))))) @ (0, DEFINE_CLASS, D)
+All(R_, UniquelyExist(D, All(x_, (x_ *in_* D) == (Set(x_) & Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_)))))) @ ("domain_exists", CLOSING, 0)
 Domain = make_function("domain")
-All(R_, x_, (x_ *in_* Domain(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))) @ ("domain", DEFINE_FUNCTION, "domain", "domain_exists")
+All(R_, x_, (x_ *in_* Domain(R_)) == (Set(x_) & Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_)))) @ (1, DEFINE_FUNCTION, "domain", "domain_exists")
+with (x *in_* Domain(R)) @ 2:
+    (Set(x) & Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) @ (3, BICONDITION, 1, 2)
+    Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x)) @ (4, TAUTOLOGY, 3)
+((x *in_* Domain(R)) >> Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) @ (5, DEDUCE)
+with Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x)) @ 6:
+    (((y *in_* R) & Arity2(y)) & (Left(y) == x)) @ (7, LET, y, 6)
+    Arity2(y) @ (8, TAUTOLOGY, 7)
+    Exist(a_, b_, (Set(a_) & Set(b_)) & (y == OrderedPair(a_, b_))) @ (9, BICONDITION, "arity_2", 8)
+    Exist(b_, (Set(a) & Set(b_)) & (y == OrderedPair(a, b_))) @ (10, LET, a, 9)
+    ((Set(a) & Set(b)) & (y == OrderedPair(a, b))) @ (11, LET, b, 10)
+    (a == Left(OrderedPair(a, b))) @ (12, BY_THEOREM, "left_of_ordered_pair", 11)
+    (Left(y) == x) @ (13, TAUTOLOGY, 7)
+    (y == OrderedPair(a, b)) @ (14, TAUTOLOGY, 11)
+    (Left(OrderedPair(a, b)) == x) @ (15, REPLACE, 13, 14)
+    (a == x) @ (16, BY_EQUIVALENCE, 15, 12)
+    Set(a) @ (17, TAUTOLOGY, 11)
+    Set(x) @ (18, REPLACE, 17, 16)
+    (Set(x) & Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) @ (19, TAUTOLOGY, 18, 6)
+    (x *in_* Domain(R)) @ (20, BICONDITION, 1, 19)
+((Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) >> (x *in_* Domain(R))) @ (21, DEDUCE)
+((x *in_* Domain(R)) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) @ (22, TAUTOLOGY, 5, 21)
+All(R_, x_, (x_ *in_* Domain(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))) @ ("domain", CLOSING, 22)
 
 # domain condition
 clear()
@@ -1520,13 +1555,6 @@ with (((Set(x) & Set(y)) & (OrderedPair(x, y) *in_* R))) @ 16:
     (x *in_* Domain(R)) @ (20, BY_THEOREM, 15, 19)
 ((((Set(x) & Set(y)) & (OrderedPair(x, y) *in_* R))) >> (x *in_* Domain(R))) @ (21, DEDUCE)
 All(x_, y_, R_, (((Set(x_) & Set(y_)) & (OrderedPair(x_, y_) *in_* R_))) >> (x_ *in_* Domain(R_))) @ ("domain_condition", CLOSING, 21)
-
-# range
-clear()
-UniquelyExist(T, All(x_, (x_ *in_* T) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Right(y_) == x_)))) @ (0, DEFINE_CLASS, T, x_, [], Exist(y_, ((y_ *in_* R) & Arity2(y_)) & (Right(y_) == x_)))
-All(R_, UniquelyExist(T, All(x_, (x_ *in_* T) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Right(y_) == x_))))) @ ("range_exists", CLOSING, 0)
-Range = make_function("range")
-All(R_, x_, (x_ *in_* Range(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Right(y_) == x_))) @ ("range", DEFINE_FUNCTION, "range", "range_exists")
 
 # function
 clear()
@@ -1591,10 +1619,25 @@ with Function(F) @ 0:
 
 # cap
 clear()
-UniquelyExist(C, (All(x_, (x_ *in_* C) == ((x_ *in_* A) & (x_ *in_* B))))) @ (0, DEFINE_CLASS, C, x_, [], ((x_ *in_* A) & (x_ *in_* B)))
-All(A_, B_, UniquelyExist(C, (All(x_, (x_ *in_* C) == ((x_ *in_* A_) & (x_ *in_* B_)))))) @ ("cap_exists", CLOSING, 0)
+UniquelyExist(C, (All(x_, (x_ *in_* C) == (Set(x_) & ((x_ *in_* A) & (x_ *in_* B)))))) @ (0, DEFINE_CLASS, C)
+All(A_, B_, UniquelyExist(C, (All(x_, (x_ *in_* C) == (Set(x_) & ((x_ *in_* A_) & (x_ *in_* B_))))))) @ (1, CLOSING, 0)
 cap = make_function("cap")
-All(A_, B_, x_, (x_ *in_* (A_ *cap* B_)) == ((x_ *in_* A_) & (x_ *in_* B_))) @ ("cap", DEFINE_FUNCTION, "cap", "cap_exists")
+All(A_, B_, x_, (x_ *in_* (A_ *cap* B_)) == (Set(x_) & ((x_ *in_* A_) & (x_ *in_* B_)))) @ (20, DEFINE_FUNCTION, "cap", 1)
+
+with ((x *in_* A) & (x *in_* B)) @ 0:
+    (x *in_* A) @ (1, TAUTOLOGY, 0)
+    Set(x) @ (2, PUT_THEOREM, "set_condition", A, 1)
+    (Set(x) & ((x *in_* A) & (x *in_* B))) @ (3, TAUTOLOGY, 0, 2)
+    (x *in_* (A *cap* B)) @ (4, BICONDITION, 20, 3)
+(((x *in_* A) & (x *in_* B)) >> (x *in_* (A *cap* B))) @ (5, DEDUCE)
+
+with (x *in_* (A *cap* B)) @ 6:
+    (Set(x) & ((x *in_* A) & (x *in_* B))) @ (7, BICONDITION, 20, 6)
+    ((x *in_* A) & (x *in_* B)) @ (8, TAUTOLOGY, 7)
+((x *in_* (A *cap* B)) >> ((x *in_* A) & (x *in_* B))) @ (9, DEDUCE)
+((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (10, TAUTOLOGY, 9, 5)
+All(A_, B_, x_, (x_ *in_* (A_ *cap* B_)) == ((x_ *in_* A_) & (x_ *in_* B_))) @ ("cap", CLOSING, 10)
+
 
 # regularity
 clear()
@@ -1602,10 +1645,10 @@ All(a_, (Set(a_) & (a_ != Empty())) >> Exist(u_, (u_ *in_* a) & ((u *cap* a) == 
 
 # image
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (a_ *in_* Domain(F))) & (x_ == F(a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (a_ *in_* Domain(F))) & (x_ == F(a_))))
-All(F_, A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_)))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A) & (a_ *in_* Domain(F))) & (x_ == F(a_)))))) @ (0, DEFINE_CLASS, C)
+All(F_, A_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_))))))) @ (1, CLOSING, 0)
 Image = make_function("image")
-All(F_, A_, x_, (x_ *in_* F_[A_]) == Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_)))) @ ("image", DEFINE_FUNCTION, "image", 1)
+All(F_, A_, x_, (x_ *in_* F_[A_]) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_))))) @ ("image", DEFINE_FUNCTION, "image", 1)
 
 # replacement
 clear()
@@ -1613,10 +1656,24 @@ All(F_, a_, (Function(F_) & Set(a_)) >> Set(F_[a_])) @ ("replacement", AXIOM)
 
 # union
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (x_ *in_* a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (x_ *in_* a_))))
-All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_)))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A) & (x_ *in_* a_)))))) @ (0, DEFINE_CLASS, C)
+All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_))))))) @ (1, CLOSING, 0)
 Union = make_function("union")
-All(A_, All(x_, (x_ *in_* Union(A_)) == Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_))))) @ ("union", DEFINE_FUNCTION, "union", 1)
+All(A_, All(x_, (x_ *in_* Union(A_)) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_)))))) @ (2, DEFINE_FUNCTION, "union", 1)
+
+with (x *in_* Union(A)) @ 3:
+    (Set(x) & Exist(a_, ((a_ *in_* A) & (x *in_* a_)))) @ (4, BICONDITION, 2, 3)
+    Exist(a_, ((a_ *in_* A) & (x *in_* a_))) @ (5, TAUTOLOGY, 4)
+((x *in_* Union(A)) >> Exist(a_, ((a_ *in_* A) & (x *in_* a_)))) @ (6, DEDUCE)
+with Exist(a_, ((a_ *in_* A) & (x *in_* a_))) @ 7:
+    ((a *in_* A) & (x *in_* a)) @ (8, LET, a, 7)
+    (x *in_* a) @ (9, TAUTOLOGY, 8)
+    Set(x) @ (10, PUT_THEOREM, "set_condition", a, 9)
+    (Set(x) & Exist(a_, ((a_ *in_* A) & (x *in_* a_)))) @ (11, TAUTOLOGY, 10, 7)
+    (x *in_* Union(A)) @ (12, BICONDITION, 2, 11)
+(Exist(a_, ((a_ *in_* A) & (x *in_* a_))) >> (x *in_* Union(A))) @ (13, DEDUCE)
+((x *in_* Union(A)) == Exist(a_, ((a_ *in_* A) & (x *in_* a_)))) @ (14, TAUTOLOGY, 6, 13)
+All(A_, All(x_, (x_ *in_* Union(A_)) == Exist(a_, ((a_ *in_* A_) & (x_ *in_* a_))))) @ ("union", CLOSING, 14)
 
 # union of set is set
 clear()
@@ -1629,10 +1686,10 @@ All(A_, B_, (A_ *inc* B_) == All(x_, (x_ *in_* A_) >> (x_ *in_* B_))) @ ("inclus
 
 # power
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (x_ *inc* a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (x_ *inc* a_))))
-All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_)))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A) & (x_ *inc* a_)))))) @ (0, DEFINE_CLASS, C)
+All(A_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_))))))) @ (1, CLOSING, 0)
 Power = make_function("power")
-All(A_, All(x_, (x_ *in_* Power(A_)) == Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_))))) @ ("power", DEFINE_FUNCTION, "power", 1)
+All(A_, All(x_, (x_ *in_* Power(A_)) == (Set(x_) & Exist(a_, ((a_ *in_* A_) & (x_ *inc* a_)))))) @ ("power", DEFINE_FUNCTION, "power", 1)
 
 # power_of_set_is_set
 clear()
@@ -1640,10 +1697,10 @@ All(a_, Set(a_) >> Set(Power(a_))) @ ("power_of_set_is_set", AXIOM)
 
 # cup
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == ((x *in_* A) | (x *in_* B)))) @ (0, DEFINE_CLASS, C, x_, [], ((x *in_* A) | (x *in_* B)))
-All(A_, B_, UniquelyExist(C, All(x_, (x_ *in_* C) == ((x *in_* A_) | (x *in_* B_))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x *in_* A) | (x *in_* B))))) @ (0, DEFINE_CLASS, C)
+All(A_, B_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x *in_* A_) | (x *in_* B_)))))) @ (1, CLOSING, 0)
 cup = make_function("cup")
-All(A_, B_, All(x_, (x_ *in_* (A_ *cup* B_)) == ((x *in_* A_) | (x *in_* B_)))) @ ("cup", DEFINE_FUNCTION, "cup", 1)
+All(A_, B_, All(x_, (x_ *in_* (A_ *cup* B_)) == (Set(x_) & ((x *in_* A_) | (x *in_* B_))))) @ ("cup", DEFINE_FUNCTION, "cup", 1)
 
 # successor
 clear()
@@ -1652,7 +1709,7 @@ All(x_, Succ(x_) == (x_ *cup* Pair(x_, x_))) @ ("successor", COMPOSITE, "success
 
 # infinity
 clear()
-Exist(a_, (Set(a_) & (Empty() *in_* a_)) & All(x_, (x_ *in_* a_) >> Succ(a_))) @ ("infinity", AXIOM)
+Exist(a_, (Set(a_) & (Empty() *in_* a_)) & All(x_, (x_ *in_* a_) >> (Succ(x_) *in_* a_))) @ ("infinity", AXIOM)
 
 # choice
 clear()
@@ -1660,10 +1717,27 @@ Exist(G_, Function(G_) & All(a_, (Set(a_) & Exist(x_, x_ *in_* a_)) >> (G_(a_) *
 
 # identity
 clear()
-UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_))))) @ (0, DEFINE_CLASS, D, x_, [], Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_))))
-All(A_, UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_)))))) @ (1, CLOSING, 0)
+UniquelyExist(D, All(x_, (x_ *in_* D) == (Set(x_) & Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_)))))) @ (0, DEFINE_CLASS, D)
+All(A_, UniquelyExist(D, All(x_, (x_ *in_* D) == (Set(x_) & Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_))))))) @ (1, CLOSING, 0)
 Identity = make_function("identity")
-All(A_, x_, (x_ *in_* Identity(A_)) == Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_)))) @ ("identity", DEFINE_FUNCTION, "identity", 1)
+All(A_, x_, (x_ *in_* Identity(A_)) == (Set(x_) & Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_))))) @ (2, DEFINE_FUNCTION, "identity", 1)
+
+with Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_))) @ 3:
+    ((a *in_* A) & (x == OrderedPair(a, a))) @ (4, LET, a, 3)
+    (a *in_* A) @ (5, TAUTOLOGY, 4)
+    Set(a) @ (6, PUT_THEOREM, "set_condition", A, 5)
+    Set(OrderedPair(a, a)) @ (7, BY_THEOREM, "ordered_pair_is_set", 6)
+    (x == OrderedPair(a, a)) @ (8, TAUTOLOGY, 4)
+    Set(x) @ (9, REPLACE, 7, 8)
+    (Set(x) & Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (10, TAUTOLOGY, 3, 9)
+    (x *in_* Identity(A)) @ (11, BICONDITION, 2, 10)
+(Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_))) >> (x *in_* Identity(A))) @ (12, DEDUCE)
+with (x *in_* Identity(A)) @ 13:
+    (Set(x) & Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (14, BICONDITION, 2, 13)
+    Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_))) @ (15, TAUTOLOGY, 14)
+((x *in_* Identity(A)) >> Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (16, DEDUCE)
+((x *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (17, TAUTOLOGY, 16, 12)
+All(A_, x_, (x_ *in_* Identity(A_)) == Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_)))) @ ("identity", CLOSING, 17)
 
 # element of identity
 clear()
@@ -1851,8 +1925,8 @@ All(a_, A_, (a_ *in_* A_) >> (a_ == Identity(A_)(a_))) @ ("identity_output", CLO
 
 # image of identity
 clear()
-with (x *in_* Identity(A)[B]) @ 0:
-    ((x *in_* Identity(A)[B]) == Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_)))) @ (1, BY_THEOREM, "image")
+with (x *in_* Identity(A)[B]) @ 0: # book
+    ((x *in_* Identity(A)[B]) == (Set(x) & Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))))) @ (1, BY_THEOREM, "image")
     Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))) @ (2, TAUTOLOGY, 0, 1)
     (((a *in_* B) & (a *in_* Domain(Identity(A)))) & (x == Identity(A)(a))) @ (3, LET, a, 2)
     
@@ -1875,15 +1949,16 @@ with (x *in_* (A *cap* B)) @ 16:
     ((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (17, BY_THEOREM, "cap")
     (x *in_* A) @ (18, TAUTOLOGY, 16, 17)
     (x *in_* B) @ (19, TAUTOLOGY, 16, 17)
-    ((x *in_* Identity(A)[B]) == Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_)))) @ (20, BY_THEOREM, "image")
-
+    ((x *in_* Identity(A)[B]) == (Set(x) & Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))))) @ (20, BY_THEOREM, "image")
+    Set(x) @ (40, PUT_THEOREM, "set_condition", A, 18)
     (A == Domain(Identity(A))) @ (21, BY_THEOREM, "domain_of_identity")
     (x *in_* Domain(Identity(A))) @ (22, REPLACE, 18, 21)
 
     (x == Identity(A)(x)) @ (23, BY_THEOREM, "identity_output", 18)
     (((x *in_* B) & (x *in_* Domain(Identity(A)))) & (x == Identity(A)(x))) @ (24, TAUTOLOGY, 19, 22, 23)
     Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))) @ (25, FOUND, x, 24)
-    (x *in_* Identity(A)[B]) @ (26, TAUTOLOGY, 25, 20)
+    (Set(x) & Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_)))) @ (41, TAUTOLOGY, 25, 40)
+    (x *in_* Identity(A)[B]) @ (26, TAUTOLOGY, 41, 20)
 ((x *in_* (A *cap* B)) >> (x *in_* Identity(A)[B])) @ (27, DEDUCE)
 
 ((x *in_* Identity(A)[B]) == (x *in_* (A *cap* B))) @ (28, TAUTOLOGY, 27, 15)
@@ -1937,3 +2012,133 @@ with ((a *inc* b) & Set(b)) @ 0:
     Set(a) @ (8, REPLACE, 4, 7)
 (((a *inc* b) & Set(b)) >> Set(a)) @ (9, DEDUCE)
 All(a_, b_, ((a_ *inc* b_) & Set(b_)) >> Set(a_)) @ ("separation", CLOSING, 9)
+
+# empty is set
+clear()
+((Set(a) & (Empty() *in_* a)) & All(x_, (x_ *in_* a) >> (Succ(x_) *in_* a))) @ (0, LET, a, "infinity")
+(Empty() *in_* a) @ (1, TAUTOLOGY, 0)
+Set(Empty()) @ ("empty_is_set", PUT_THEOREM, "set_condition", a, 1)
+
+# inductive
+clear()
+Inductive = make_property("inductive")
+All(a_, Inductive(a_) == ((Set(a_) & (Empty() *in_* a_)) & All(x_, (x_ *in_* a_) >> (Succ(x_) *in_* a_)))) @ ("inductive", DEFINE_PROPERTY, "inductive")
+
+# inductive exist
+clear()
+((Set(a) & (Empty() *in_* a)) & All(x_, (x_ *in_* a) >> (Succ(x_) *in_* a))) @ (0, LET, a, "infinity")
+Inductive(a) @ (1, BICONDITION, "inductive", 0)
+Exist(a_, Inductive(a_)) @ ("inductive_exist", FOUND, a, 1)
+
+# self inclusion
+clear()
+((x *in_* A) >> (x *in_* A)) @ (0, TAUTOLOGY)
+All(x_, (x_ *in_* A) >> (x_ *in_* A)) @ (1, CLOSING, 0)
+(A *inc* A) @ (2, BICONDITION, "inclusion", 1)
+All(A_, A_ *inc* A_) @  ("self_inclusion", CLOSING, 2)
+
+# nonempty
+clear()
+with (A != Empty()) @ 0:
+    with All(x_, ~ (x_ *in_* A)) @ 1:
+        (~ (x *in_* A)) @ (2, PUT, x, 1)
+        ((x *in_* Empty()) == false) @ (3, BY_THEOREM, "empty")
+        ((x *in_* A) == (x *in_* Empty())) @ (4, TAUTOLOGY, 2, 3)
+        All(x_, (x_ *in_* A) == (x_ *in_* Empty())) @ (5, CLOSING, 4)
+        (A == Empty()) @ (6, BY_THEOREM, "extensionality", 5)
+        false @ (7, TAUTOLOGY, 0, 6)
+    (All(x_, ~ (x_ *in_* A)) >> false) @ (8, DEDUCE)
+    ((~ Exist(x_, (x_ *in_* A))) == All(x_, ~ (x_ *in_* A))) @ (9, DUAL)
+    Exist(x_, (x_ *in_* A)) @ (10, TAUTOLOGY, 8, 9)
+((A != Empty()) >> Exist(x_, (x_ *in_* A))) @ (11, DEDUCE)
+
+with Exist(x_, (x_ *in_* A)) @ 12:
+    (y *in_* A) @ (13, LET, y, 12)
+    ((y *in_* Empty()) == false) @ (14, BY_THEOREM, "empty")
+    with (A == Empty()) @ 15:
+        (y *in_* Empty()) @ (16, REPLACE, 13, 15)
+        false @ (17, TAUTOLOGY, 16, 14)
+    ((A == Empty()) >> false) @ (18, DEDUCE)
+    (A != Empty()) @ (19, TAUTOLOGY, 18)
+(Exist(x_, x_ *in_* A) >> (A != Empty())) @ (20, DEDUCE)
+
+((A != Empty()) == Exist(x_, (x_ *in_* A))) @ (21, TAUTOLOGY, 11, 20)
+All(A_, (A_ != Empty()) == Exist(x_, (x_ *in_* A_))) @ ("nonempty", CLOSING, 21)
+
+# nonempty condition
+with (x *in_* A) @ 0:
+    Exist(x_, x_ *in_* A) @ (1, FOUND, x, 0)
+    (A != Empty()) @ (2, BICONDITION, "nonempty", 1)
+((x *in_* A) >> (A != Empty())) @ (3, DEDUCE)
+All(x_, A_, (x_ *in_* A_) >> (A_ != Empty())) @ (4, CLOSING, 3)
+
+# naturals
+clear()
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & All(A_, Inductive(A_) >> (x_ *in_* A_))))) @ (0, DEFINE_CLASS, C)
+Naturals = make_function("naturals")
+All(x_, (x_ *in_* Naturals()) == (Set(x_) & All(A_, Inductive(A_) >> (x_ *in_* A_)))) @ (1, DEFINE_FUNCTION, "naturals", 0)
+with All(A_, Inductive(A_) >> (x *in_* A_)) @ 2:
+    Inductive(a) @ (3, LET, a, "inductive_exist")
+    (Inductive(a) >> (x *in_* a)) @ (4, PUT, a, 2)
+    (x *in_* a) @ (5, TAUTOLOGY, 3, 4)
+    Set(x) @ (6, PUT_THEOREM, "set_condition", a, 5)
+    (Set(x) & All(A_, Inductive(A_) >> (x *in_* A_))) @ (7, TAUTOLOGY, 6, 2)
+    (x *in_* Naturals()) @ (8, BICONDITION, 1, 7)
+(All(A_, Inductive(A_) >> (x *in_* A_)) >> (x *in_* Naturals())) @ (9, DEDUCE)
+with (x *in_* Naturals()) @ 10:
+    (Set(x) & All(A_, Inductive(A_) >> (x *in_* A_))) @ (11, BICONDITION, 1, 10)
+    All(A_, Inductive(A_) >> (x *in_* A_)) @ (12, TAUTOLOGY, 11)
+((x *in_* Naturals()) >> All(A_, Inductive(A_) >> (x *in_* A_))) @ (13, DEDUCE)
+((x *in_* Naturals()) == All(A_, Inductive(A_) >> (x *in_* A_))) @ (14, TAUTOLOGY, 13, 9)
+All(x_, (x_ *in_* Naturals()) == All(A_, Inductive(A_) >> (x_ *in_* A_))) @ ("naturals", CLOSING, 14)
+
+
+# empty in naturals
+clear()
+with Inductive(A) @ 0:
+    ((Set(A) & (Empty() *in_* A)) & All(x_, (x_ *in_* A) >> (Succ(x_) *in_* A))) @ (1, BICONDITION, "inductive", 0)
+    (Empty() *in_* A) @ (2, TAUTOLOGY, 1)
+(Inductive(A) >> (Empty() *in_* A)) @ (3, DEDUCE)
+All(A_, Inductive(A_) >> (Empty() *in_* A_)) @ (4, CLOSING, 3)
+(Empty() *in_* Naturals()) @ ("empty_in_naturals",  BICONDITION, "naturals", 4)
+
+# successor in naturals
+clear()
+with (x *in_* Naturals()) @ 0:
+    All(A_, Inductive(A_) >> (x *in_* A_)) @ (1, BICONDITION, "naturals", 0)
+    with Inductive(A) @ 2:
+        (x *in_* A) @ (3, BY_THEOREM, 1, 2)
+        ((Set(A) & (Empty() *in_* A)) & All(x_, (x_ *in_* A) >> (Succ(x_) *in_* A))) @ (4, BICONDITION, "inductive", 2)
+        All(x_, (x_ *in_* A) >> (Succ(x_) *in_* A)) @ (5, TAUTOLOGY, 4)
+        (Succ(x) *in_* A) @ (6, BY_THEOREM, 5, 3)
+    (Inductive(A) >> (Succ(x) *in_* A)) @ (7, DEDUCE)
+    All(A_, Inductive(A_) >> (Succ(x) *in_* A_)) @ (8, CLOSING, 7)
+    (Succ(x) *in_* Naturals()) @ (9, BICONDITION, "naturals", 8)
+((x *in_* Naturals()) >> (Succ(x) *in_* Naturals())) @ (10, DEDUCE)
+All(x_, (x_ *in_* Naturals()) >> (Succ(x_) *in_* Naturals())) @ ("successor_in_naturals", CLOSING, 10)
+
+# naturals is smallest
+clear()
+with Inductive(A) @ 0:
+    with (x *in_* Naturals()) @ 1:
+        All(A_, Inductive(A_) >> (x *in_* A_)) @ (2, BICONDITION, "naturals", 1)
+        (x *in_* A) @ (3, BY_THEOREM, 2, 0)
+    ((x *in_* Naturals()) >> (x *in_* A)) @ (4, DEDUCE)
+    All(x_, (x_ *in_* Naturals()) >> (x_ *in_* A)) @ (5, CLOSING, 4)
+    (Naturals() *inc* A) @ (6, BICONDITION, "inclusion", 5)
+(Inductive(A) >> (Naturals() *inc* A)) @ (7, DEDUCE)
+All(A_, Inductive(A_) >> (Naturals() *inc* A_)) @ ("naturals_is_smallest", CLOSING, 7)
+
+# naturals is set
+clear()
+Inductive(a) @ (0, LET, a, "inductive_exist")
+((Set(a) & (Empty() *in_* a)) & All(x_, (x_ *in_* a) >> (Succ(x_) *in_* a))) @ (1, BICONDITION, "inductive", 0)
+Set(a) @ (2, TAUTOLOGY, 1)
+(Naturals() *inc* a) @ (3, BY_THEOREM, "naturals_is_smallest", 0)
+Set(Naturals()) @ ("naturals_is_set", PUT_THEOREM, "separation", a, 2, 3)
+
+# naturals is inductive
+clear()
+((Set(Naturals()) & (Empty() *in_* Naturals())) & All(x_, (x_ *in_* Naturals()) >> (Succ(x_) *in_* Naturals()))) @ (0, TAUTOLOGY, "empty_in_naturals", "successor_in_naturals", "naturals_is_set")
+Inductive(Naturals()) @ ("naturals_is_inductive", BICONDITION, "inductive", 0)
+
