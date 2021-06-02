@@ -1697,15 +1697,94 @@ All(a_, Set(a_) >> Set(Power(a_))) @ ("power_of_set_is_set", AXIOM)
 
 # cup
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x *in_* A) | (x *in_* B))))) @ (0, DEFINE_CLASS, C)
-All(A_, B_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x *in_* A_) | (x *in_* B_)))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x_ *in_* A) | (x_ *in_* B))))) @ (0, DEFINE_CLASS, C)
+All(A_, B_, UniquelyExist(C, All(x_, (x_ *in_* C) == (Set(x_) & ((x_ *in_* A_) | (x_ *in_* B_)))))) @ (1, CLOSING, 0)
 cup = make_function("cup")
-All(A_, B_, All(x_, (x_ *in_* (A_ *cup* B_)) == (Set(x_) & ((x *in_* A_) | (x *in_* B_))))) @ ("cup", DEFINE_FUNCTION, "cup", 1)
+All(A_, B_, x_, (x_ *in_* (A_ *cup* B_)) == (Set(x_) & ((x_ *in_* A_) | (x_ *in_* B_)))) @ (2, DEFINE_FUNCTION, "cup", 1)
+
+with ((x *in_* A) | (x *in_* B)) @ 3:
+    with (x *in_* A) @ 4:
+        Set(x) @ (5, PUT_THEOREM, "set_condition", A, 4)
+    ((x *in_* A) >> Set(x)) @ (20, DEDUCE)
+    with (x *in_* B) @ 4:
+        Set(x) @ (5, PUT_THEOREM, "set_condition", B, 4)
+    ((x *in_* B) >> Set(x)) @ (21, DEDUCE)
+    Set(x) @ (5, TAUTOLOGY, 3, 20, 21)
+    (Set(x) & ((x *in_* A) | (x *in_* B))) @ (6, TAUTOLOGY, 5, 3)
+    (x *in_* (A *cup* B)) @ (7, BICONDITION, 2, 6)
+(((x *in_* A) | (x *in_* B)) >> (x *in_* (A *cup* B))) @ (8, DEDUCE)
+with (x *in_* (A *cup* B)) @ 9:
+    (Set(x) & ((x *in_* A) | (x *in_* B))) @ (10, BICONDITION, 2, 9)
+    ((x *in_* A) | (x *in_* B)) @ (11, TAUTOLOGY, 10)
+((x *in_* (A *cup* B)) >> ((x *in_* A) | (x *in_* B))) @ (12, DEDUCE)
+((x *in_* (A *cup* B)) == ((x *in_* A) | (x *in_* B))) @ (13, TAUTOLOGY, 8, 12)
+All(A_, B_, x_, (x_ *in_* (A_ *cup* B_)) ==  ((x_ *in_* A_) | (x_ *in_* B_))) @ ("cup", CLOSING, 13)
+
+# cup is union of pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    with (x *in_* (a *cup* b)) @ 1:
+        ((x *in_* a) | (x *in_* b)) @ (2, BICONDITION, "cup", 1) 
+        ((x *in_* a) | (x *in_* b)) @ (3, TAUTOLOGY, 2)
+        with (x *in_* a) @ 6:
+            (a *in_* Pair(a, b)) @ (7, BY_THEOREM, "left_in_pair", 0)
+            ((a *in_* Pair(a, b)) & (x *in_* a)) @ (8, TAUTOLOGY, 7, 6)
+            Exist(a_, (a_ *in_* Pair(a, b)) & (x *in_* a_)) @ (9, FOUND, a, 8)
+            (x *in_* Union(Pair(a, b))) @ (11, BICONDITION, "union", 9)
+        ((x *in_* a) >> (x *in_* Union(Pair(a, b)))) @ (12, DEDUCE)
+        with (x *in_* b) @ 6:
+            (b *in_* Pair(a, b)) @ (7, BY_THEOREM, "right_in_pair", 0)
+            ((b *in_* Pair(a, b)) & (x *in_* b)) @ (8, TAUTOLOGY, 7, 6)
+            Exist(a_, (a_ *in_* Pair(a, b)) & (x *in_* a_)) @ (9, FOUND, b, 8)
+            (x *in_* Union(Pair(a, b))) @ (11, BICONDITION, "union", 9)
+        ((x *in_* b) >> (x *in_* Union(Pair(a, b)))) @ (13, DEDUCE)
+        (x *in_* Union(Pair(a, b))) @ (14, TAUTOLOGY, 12, 13, 3)
+    ((x *in_* (a *cup* b)) >> (x *in_* Union(Pair(a, b)))) @ (15, DEDUCE)
+    with (x *in_* Union(Pair(a, b))) @ 16:
+        Exist(a_, (a_ *in_* Pair(a, b)) & (x *in_* a_)) @ (17, BICONDITION, "union", 16)
+        ((c *in_* Pair(a, b)) & (x *in_* c)) @ (18, LET, c, 17)
+        (c *in_* Pair(a, b)) @ (19, TAUTOLOGY, 18)
+        ((c == a) | (c == b)) @ (20, BY_THEOREM, "element_of_pair", 19, 0)
+        (x *in_* c) @ (21, TAUTOLOGY, 18)
+        with (c == a) @ 22:
+            (x *in_* a) @ (23, REPLACE, 21, 22)
+        ((c == a) >> (x *in_* a)) @ (24, DEDUCE)
+        with (c == b) @ 25:
+            (x *in_* b) @ (26, REPLACE, 21, 25)
+        ((c == b) >> (x *in_* b)) @ (27, DEDUCE)
+        ((x *in_* a) | (x *in_* b)) @ (28, TAUTOLOGY, 20, 27, 24)
+        (x *in_* (a *cup* b)) @ (29, BICONDITION, "cup", 28)
+    ((x *in_* Union(Pair(a, b))) >> (x *in_* (a *cup* b))) @ (30, DEDUCE)
+
+    ((x *in_* (a *cup* b)) == (x *in_* Union(Pair(a, b)))) @ (31, TAUTOLOGY, 30, 15)
+    All(x_, (x_ *in_* (a *cup* b)) == (x_ *in_* Union(Pair(a, b)))) @ (32, CLOSING, 31)
+    ((a *cup* b) == Union(Pair(a, b))) @ (33, BY_THEOREM, "extensionality", 32)
+((Set(a) & Set(b)) >> ((a *cup* b) == Union(Pair(a, b)))) @ (34, DEDUCE)
+All(a_, b_, (Set(a_) & Set(b_)) >> ((a_ *cup* b_) == Union(Pair(a_, b_)))) @ ("cup_is_union_of_pair", CLOSING, 34)
+
+# cup of set is set
+clear()
+with (Set(a) & Set(b)) @ 0:
+    ((a *cup* b) == Union(Pair(a, b))) @ (1, BY_THEOREM, "cup_is_union_of_pair", 0)
+    Set(Pair(a, b)) @ (2, BY_THEOREM, "pair_is_set", 0)
+    Set(Union(Pair(a, b))) @ (3, BY_THEOREM, "union_of_set_is_set", 2)
+    Set(a *cup* b) @ (4, REPLACE, 3, 1)
+((Set(a) & Set(b)) >> Set(a *cup* b)) @ (5, DEDUCE)
+All(a_, b_, (Set(a_) & Set(b_)) >> Set(a_ *cup* b_)) @ ("cup_of_set_is_set", CLOSING, 5)
 
 # successor
 clear()
 Succ = make_function("successor")
 All(x_, Succ(x_) == (x_ *cup* Pair(x_, x_))) @ ("successor", COMPOSITE, "successor")
+
+# successor is set
+with Set(x) @ 0:
+    Set(Pair(x, x)) @ (1, BY_THEOREM, "pair_is_set", 0)
+    Set(x *cup* Pair(x, x)) @ (2, BY_THEOREM, "cup_of_set_is_set", 0, 1)
+    (Succ(x) == (x *cup* Pair(x, x))) @ (3, BY_THEOREM, "successor")
+    Set(Succ(x)) @ (4, REPLACE, 2, 3)
+(Set(x) >> Set(Succ(x))) @ (5, DEDUCE)
+All(x_, Set(x_) >> Set(Succ(x_))) @ ("successor_is_set", CLOSING, 5)
 
 # infinity
 clear()
@@ -2142,3 +2221,101 @@ clear()
 ((Set(Naturals()) & (Empty() *in_* Naturals())) & All(x_, (x_ *in_* Naturals()) >> (Succ(x_) *in_* Naturals()))) @ (0, TAUTOLOGY, "empty_in_naturals", "successor_in_naturals", "naturals_is_set")
 Inductive(Naturals()) @ ("naturals_is_inductive", BICONDITION, "inductive", 0)
 
+# bi-inclusion
+clear()
+with ((A *inc* B) & (B *inc* A)) @ 0:
+    (A *inc* B) @ (1, TAUTOLOGY, 0)
+    (B *inc* A) @ (2, TAUTOLOGY, 0)
+
+    with (x *in_* A) @ 3:
+        (x *in_* B) @ (4, PUT_THEOREM, "element_of_subset", A, 1, 3)
+    ((x *in_* A) >> (x *in_* B)) @ (7, DEDUCE)
+
+    with (x *in_* B) @ 5:
+        (x *in_* A) @ (6, PUT_THEOREM, "element_of_subset", B, 2, 5)
+    ((x *in_* B) >> (x *in_* A)) @ (8, DEDUCE)
+
+    ((x *in_* A) == (x *in_* B)) @ (9, TAUTOLOGY, 7, 8)
+    All(x_, (x_ *in_* A) == (x_ *in_* B)) @ (10, CLOSING, 9)
+    (A == B) @ (11, BY_THEOREM, "extensionality", 10)
+(((A *inc* B) & (B *inc* A)) >> (A == B)) @ (12, DEDUCE)
+All(A_, B_, ((A_ *inc* B_) & (B_ *inc* A_)) >> (A_ == B_)) @ ("bi-inclusion", CLOSING, 12)
+
+def induction(target, C0, C1, initial, iteration):
+    initial = proof_history[initial]
+    assert initial.is_proved()
+    initial @ -11
+    iteration = proof_history[iteration]
+    assert iteration.is_proved()
+    iteration @ -12
+    assert target.type_ == TYPE_ALL
+    n0 = target.bound
+    cursor = target.statement
+    assert cursor.type_ == TYPE_IMPLY
+    
+    def Prop(x):
+        return target.statement.conclusion.substitute(n0, x)
+
+    UniquelyExist(C0, All(x_, (x_ *in_* C0) == ((Set(x_) & ((x_ *in_* Naturals()) & Prop(x_)))))) @ (-13, DEFINE_CLASS, C0)
+    All(x_, (x_ *in_* C1) == (Set(x_) & ((x_ *in_* Naturals()) & Prop(x_)))) @ (-16, LET, C1, -13)
+
+    Set(Empty()) @ (-14, BY_THEOREM, "empty_is_set")
+    (Empty() *in_* Naturals()) @ (-18, BY_THEOREM, "empty_in_naturals")
+
+    ((Set(Empty()) & (Empty() *in_* Naturals())) & Prop(Empty())) @ (-15, TAUTOLOGY, -14, -11, -18)
+    (Empty() *in_* C1) @ (-17, BICONDITION, -16, -15)
+
+    with (n0 *in_* C1) @ -19:
+        (Set(n0) & ((n0 *in_* Naturals()) & Prop(n0))) @ (-20, BICONDITION, -16, -19)
+        
+        Set(n0) @ (-21, TAUTOLOGY, -20)
+        Set(Succ(n0)) @ (-22, BY_THEOREM, "successor_is_set", -21)
+
+        (n0 *in_* Naturals()) @ (-23, TAUTOLOGY, -20)
+        (Succ(n0) *in_* Naturals()) @ (-24, BY_THEOREM, "successor_in_naturals", -23)
+
+        (Prop(n0) >> Prop(Succ(n0))) @ (-25, PUT, n0, -12)
+        Prop(n0) @ (-26, TAUTOLOGY, -20)
+        Prop(Succ(n0)) @ (-27, TAUTOLOGY, -26, -25)
+
+        (Set(Succ(n0)) & ((Succ(n0) *in_* Naturals()) & Prop(Succ(n0)))) @ (-28, TAUTOLOGY, -27, -24, -22)
+        (Succ(n0) *in_* C1) @ (-29, BICONDITION, -16, -28)
+    ((n0 *in_* C1) >> (Succ(n0) *in_* C1)) @ (-30, DEDUCE)
+    All(n0, (n0 *in_* C1) >> (Succ(n0) *in_* C1)) @ (-31, GENERALIZE, -30)
+    ((x_ *in_* C1) >> (Succ(x_) *in_* C1)) @ (-32, PUT, x_, -31)
+    All(x_, (x_ *in_* C1) >> (Succ(x_) *in_* C1)) @ (-33, GENERALIZE, -32)
+
+    with (n0 *in_* C1) @ -34:
+        (Set(n0) & ((n0 *in_* Naturals()) & Prop(n0))) @ (-35, BICONDITION, -16, -19)
+        (n0 *in_* Naturals()) @ (-36, TAUTOLOGY, -35)
+    ((n0 *in_* C1) >> (n0 *in_* Naturals())) @ (-37, DEDUCE)
+    All(n0, (n0 *in_* C1) >> (n0 *in_* Naturals())) @ (-38, GENERALIZE, -37)
+    ((x_ *in_* C1) >> (x_ *in_* Naturals())) @ (-39, PUT, x_, -38)
+    All(x_, (x_ *in_* C1) >> (x_ *in_* Naturals())) @ (-40, GENERALIZE, -39)
+    (C1 *inc* Naturals()) @ (-41, BICONDITION, "inclusion", -40)
+    Set(C1) @ (-42, PUT_THEOREM, "separation", Naturals(), -41, "naturals_is_set")
+
+    ((Set(C1) & (Empty() *in_* C1)) & All(x_, (x_ *in_* C1) >> (Succ(x_) *in_* C1))) @ (-43, TAUTOLOGY, -42, -17, -33)
+    Inductive(C1) @ (-44, BICONDITION, "inductive", -43)
+
+    (Naturals() *inc* C1) @ (-45, BY_THEOREM, "naturals_is_smallest", -44)
+    (Naturals() == C1) @ (-46, BY_THEOREM, "bi-inclusion", -45, -41)
+
+    All(x_, (x_ *in_* Naturals()) == (Set(x_) & ((x_ *in_* Naturals()) & Prop(x_)))) @ (-47, REPLACE, -16, -46)
+    ((n0 *in_* Naturals()) == (Set(n0) & ((n0 *in_* Naturals()) & Prop(n0)))) @ (-48, PUT, n0, -47)
+    with (n0 *in_* Naturals()) @ -49:
+        Prop(n0) @ (-50, TAUTOLOGY, -48, -49)
+    ((n0 *in_* Naturals()) >> Prop(n0)) @ (-51, DEDUCE)
+    return target @ (-52, GENERALIZE, -51)
+
+INDUCTION = 40
+callbacks[INDUCTION] = induction
+
+# test
+clear()
+Set(Empty()) @ (0, BY_THEOREM, "empty_is_set")
+with Set(n) @ 1:
+    Set(Succ(n)) @ (2, BY_THEOREM, "successor_is_set", 1)
+(Set(n) >> Set(Succ(n))) @ (3, DEDUCE)
+All(n, Set(n) >> Set(Succ(n))) @ (5, GENERALIZE, 3)
+All(n, (n *in_* Naturals()) >> Set(n)) @ (4, INDUCTION, C, D, 0, 5)
