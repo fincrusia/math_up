@@ -179,7 +179,7 @@ class Node:
         elif self.type_ == TYPE_IMPLY:
             return "(" + str(self.assumption) + " >> " + str(self.conclusion) + ")"
         elif self.type_ == TYPE_IFF:
-            return "(" + str(self.left) + " & " + str(self.right) + ")"
+            return "(" + str(self.left) + " == " + str(self.right) + ")"
         elif self.type_ == TYPE_TRUE:
             return "true"
         elif self.type_ == TYPE_FALSE:
@@ -665,11 +665,12 @@ class Node:
         assert not b.is_sentence()
         return Node(TYPE_FUNCTION, name = "image", children = [self, B])
 
-    def __call__(self, b): # reserved!
+    def __call__(self, *arguments): # reserved!
         assert not self.is_sentence()
-        assert isinstance(b, Node)
-        assert not b.is_sentence()
-        return Node(TYPE_FUNCTION, name = "put", children = [self, b])
+        for argument in arguments:
+            assert isinstance(argument, Node)
+            assert not argument.is_sentence()
+        return Node(TYPE_FUNCTION, name = "put", children = [self, *arguments])
 
     def __eq__(self, B): # reserved!
         if B == None:
@@ -1020,6 +1021,15 @@ clear()
 Set = make_property("set")
 (All(x_, Set(x_) == Exist(C_, x_ *in_* C_))) @ ("set", DEFINE_PROPERTY, "set")
 
+# set condition
+clear()
+with (x *in_* C) @ 0:
+    Exist(C_, x *in_* C_) @ (1, FOUND, C, 0)
+    (Set(x) == Exist(C_, x *in_* C_)) @ (2, BY_THEOREM, "set")
+    Set(x) @ (3, TAUTOLOGY, 1, 2)
+((x *in_* C) >> Set(x)) @ (4, DEDUCE)
+All(C_, x_, (x_ *in_* C_) >> Set(x_)) @ ("set_condition", CLOSING, 4)
+
 # equality reflection
 clear()
 All(A_, A_ == A_) @ ("equality_reflection", AXIOM)
@@ -1160,7 +1170,7 @@ callbacks[COMPOSITE] = composite_function
 
 # extensionality
 clear()
-All(A_, B_, (A_ == B_) == All(x_, (x_ *in_* A_) == (x_ *in_* B_))) @ ("extensionality", AXIOM)
+All(A_, B_, All(x_, (x_ *in_* A_) == (x_ *in_* B_)) >> (A_ == B_)) @ ("extensionality", AXIOM)
 
 # pairing
 clear()
@@ -1339,6 +1349,53 @@ All(a_, b_, c_, d_, ((Set(a_) & Set(b_) & Set(c_) & Set(d_)) & (OrderedPair(a_, 
 Arity2 = make_property("arity_2")
 All(p_, Arity2(p_) == Exist(a_, b_, (Set(a_) & Set(b_)) & (p_ == OrderedPair(a_, b_)))) @ ("arity_2", DEFINE_PROPERTY, "arity_2")
 
+# arity2 condition
+with ((Set(a) & Set(b)) & (p == OrderedPair(a, b))) @ 0:
+    Exist(b_, ((Set(a) & Set(b_)) & (p == OrderedPair(a, b_)))) @ (1, FOUND, b, 0)
+    Exist(a_, b_, (((Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_))))) @ (2, FOUND, a, 1)
+    (Arity2(p) == Exist(a_, b_, (Set(a_) & Set(b_)) & (p == OrderedPair(a_, b_)))) @ (3, BY_THEOREM, "arity_2")
+    Arity2(p) @ (4, TAUTOLOGY, 2, 3)
+((((Set(a) & Set(b)) & (p == OrderedPair(a, b)))) >> Arity2(p)) @ (5, DEDUCE)
+All(a_, b_, p_, (((Set(a_) & Set(b_)) & (p_ == OrderedPair(a_, b_)))) >> Arity2(p_)) @ ("arity_2_condition", CLOSING, 5)
+
+def arity_2(target, Seta, Setb, po):
+    Seta = proof_history[Seta]
+    assert Seta.is_proved()
+    Setb = proof_history[Setb]
+    assert Setb.is_proved()
+    po = proof_history[po]
+    assert po.is_proved()
+    assert Seta.type_ == TYPE_PROPERTY
+    assert Seta.name == "set"
+    a0 = Seta.children[0]
+    assert Setb.type_ == TYPE_PROPERTY
+    assert Setb.name == "set"
+    b0 = Setb.children[0]
+    assert po.type_ == TYPE_PROPERTY
+    assert po.name == "equal"
+    p0 = po.children[0]
+    All(b_, p_, (((Set(a0) & Set(b_)) & (p_ == OrderedPair(a0, b_)))) >> Arity2(p_)) @ (-5, PUT, a0, "arity_2_condition")
+    All(p_, (((Set(a0) & Set(b0)) & (p_ == OrderedPair(a0, b0)))) >> Arity2(p_)) @ (-5, PUT, b0, -5)
+    ((((Set(a0) & Set(b0)) & (p0 == OrderedPair(a0, b0)))) >> Arity2(p0)) @ (-5, PUT, p0, -5)
+    Seta @ -6
+    Setb @ -7
+    po @ -8
+    Arity2(p0) @ (-5, TAUTOLOGY, -5, -6, -7, -8)
+    return target @ (-5, TAUTOLOGY, -5)
+
+ARITY_2 = 39
+callbacks[ARITY_2] = arity_2
+
+# ordered pair is arity 2
+clear()
+with (Set(a) & Set(b)) @ 0:
+    (OrderedPair(a, b) == OrderedPair(a, b)) @ (1, BY_EQUIVALENCE)
+    Set(a) @ (2, TAUTOLOGY, 0)
+    Set(b) @ (3, TAUTOLOGY, 0)
+    Arity2(OrderedPair(a, b)) @(4, ARITY_2, 2, 3, 1)
+((Set(a) & Set(b)) >> Arity2(OrderedPair(a, b))) @ (5, DEDUCE)
+All(a_, b_, (Set(a_) & Set(b_)) >> Arity2(OrderedPair(a_, b_))) @ ("ordered_pair_is_arity_2", CLOSING, 5)
+
 # unique left
 clear()
 with Arity2(p) @ 0:
@@ -1362,6 +1419,29 @@ clear()
 Left = make_function("left")
 All(p_, Arity2(p_) >> Exist(b_, (Set(Left(p_)) & Set(b_)) & (p_ == OrderedPair(Left(p_), b_)))) @ ("left", DEFINE_FUNCTION, "left", "unique_left")
 
+# ordered pair is set
+clear()
+with (Set(a) & Set(b)) @ 0:
+    (OrderedPair(a, b) == Pair(Pair(a, a), Pair(a, b))) @ (1, BY_THEOREM, "ordered_pair")
+    Set(Pair(a, a)) @ (2, BY_THEOREM, "pair_is_set", 0)
+    Set(Pair(a, b)) @ (3, BY_THEOREM, "pair_is_set", 0)
+    Set(Pair(Pair(a, a), Pair(a, b))) @ (4, BY_THEOREM, "pair_is_set", 2, 3)
+    Set(OrderedPair(a, b)) @ (5, REPLACE, 4, 1)
+((Set(a) & Set(b)) >> Set(OrderedPair(a, b))) @ (6, DEDUCE)
+All(a_, b_, ((Set(a_) & Set(b_)) >> Set(OrderedPair(a_, b_)))) @ ("ordered_pair_is_set", CLOSING, 6)
+
+# left of ordered pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    Arity2(OrderedPair(a, b)) @ (1, BY_THEOREM, "ordered_pair_is_arity_2", 0)
+    Set(OrderedPair(a, b)) @ (10, BY_THEOREM, "ordered_pair_is_set", 0)
+    Exist(b_, (Set(Left(OrderedPair(a, b))) & Set(b_)) & (OrderedPair(a, b) == OrderedPair(Left(OrderedPair(a, b)), b_))) @ (2, BY_THEOREM, "left", 1)
+    ((Set(Left(OrderedPair(a, b))) & Set(c)) & (OrderedPair(a, b) == OrderedPair(Left(OrderedPair(a, b)), c))) @ (3, LET, c, 2)
+    ((a == Left(OrderedPair(a, b))) & (b == c)) @ (4, BY_THEOREM, "comparison_of_ordered_pairs", 3, 0, 10)
+    (a == Left(OrderedPair(a, b))) @ (5, TAUTOLOGY, 4)
+((Set(a) & Set(b)) >> (a == Left(OrderedPair(a, b)))) @ (6, DEDUCE)
+All(a_, b_, (Set(a_) & Set(b_)) >> (a_ == Left(OrderedPair(a_, b_)))) @ ("left_of_ordered_pair", CLOSING, 6)
+
 # unique right
 clear()
 with Arity2(p) @ 0:
@@ -1382,6 +1462,17 @@ clear()
 Right = make_function("right")
 All(p_, Arity2(p_) >> ((Set(Left(p_)) & Set(Right(p_))) & (p_ == OrderedPair(Left(p_), Right(p_))))) @ ("right", DEFINE_FUNCTION, "right", "unique_right")
 
+# right of ordered pair
+clear()
+with (Set(a) & Set(b)) @ 0:
+    Arity2(OrderedPair(a, b)) @ (1, BY_THEOREM, "ordered_pair_is_arity_2", 0)
+    Set(OrderedPair(a, b)) @ (2, BY_THEOREM, "ordered_pair_is_set", 0)
+    ((Set(Left(OrderedPair(a, b))) & Set(Right(OrderedPair(a, b)))) & (OrderedPair(a, b) == OrderedPair(Left(OrderedPair(a, b)), Right(OrderedPair(a, b))))) @ (3, BY_THEOREM, "right", 1)
+    ((a == Left(OrderedPair(a, b))) & (b == Right(OrderedPair(a, b)))) @ (4, BY_THEOREM, "comparison_of_ordered_pairs", 0, 3)
+    (b == Right(OrderedPair(a, b))) @ (5, TAUTOLOGY, 4)
+((Set(a) & Set(b)) >> (b == Right(OrderedPair(a, b)))) @ (6, DEDUCE)
+All(a_, b_, (Set(a_) & Set(b_)) >> (b_ == Right(OrderedPair(a_, b_)))) @ ("right_of_ordered_pair", CLOSING, 6)
+
 # empty
 clear()
 Empty = make_function("empty")
@@ -1391,7 +1482,7 @@ All(x_, (x_ *in_* Empty()) == false) @ ("empty", DEFINE_FUNCTION, "empty", 0)
 # relation
 clear()
 Relation = make_property("relation")
-All(R_, (Relation(R_) == All(x_, (x_ *in_* R_)) >> Arity2(x_))) @ ("relation", DEFINE_PROPERTY, "relation")
+All(R_, (Relation(R_) == All(x_, (x_ *in_* R_) >> Arity2(x_)))) @ ("relation", DEFINE_PROPERTY, "relation")
 
 # domain
 clear()
@@ -1399,6 +1490,36 @@ UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R) & Arity2(y_)) &
 All(R_, UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))))) @ ("domain_exists", CLOSING, 0)
 Domain = make_function("domain")
 All(R_, x_, (x_ *in_* Domain(R_)) == Exist(y_, ((y_ *in_* R_) & Arity2(y_)) & (Left(y_) == x_))) @ ("domain", DEFINE_FUNCTION, "domain", "domain_exists")
+
+# domain condition
+clear()
+with (Set(x) & Exist(f_, Set(f_) & (OrderedPair(x, f_) *in_* R))) @ 0:
+    ((x *in_* Domain(R)) == Exist(y_, (((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x)))) @ (1, BY_THEOREM, "domain")
+    
+    Set(x) @ (2, TAUTOLOGY, 0)
+    Exist(f_, Set(f_) & (OrderedPair(x, f_) *in_* R)) @ (3, TAUTOLOGY, 0)
+    (Set(f) & (OrderedPair(x, f) *in_* R)) @ (4, LET, f, 3)
+    Set(f) @ (5, TAUTOLOGY, 4)
+    (OrderedPair(x, f) *in_* R) @ (6, TAUTOLOGY, 4)
+
+    (OrderedPair(x, f) == OrderedPair(x, f)) @ (7, BY_EQUIVALENCE)
+    Arity2(OrderedPair(x, f)) @ (8, ARITY_2, 2, 5, 7)
+    (x == Left(OrderedPair(x, f))) @ (9, BY_THEOREM, "left_of_ordered_pair", 2, 5)
+    (Left(OrderedPair(x, f)) == x) @ (10, BY_EQUIVALENCE, 9)
+
+    (((OrderedPair(x, f) *in_* R) & Arity2(OrderedPair(x, f))) & (Left(OrderedPair(x, f)) == x)) @ (11, TAUTOLOGY, 10, 6, 8)
+    Exist(y_, (((y_ *in_* R) & Arity2(y_)) & (Left(y_) == x))) @ (12, FOUND, OrderedPair(x, f), 11)
+    (x *in_* Domain(R)) @ (13, TAUTOLOGY, 12, 1)
+((Set(x) & Exist(f_, Set(f_) & (OrderedPair(x, f_) *in_* R))) >> (x *in_* Domain(R))) @ (14, DEDUCE)
+All(R_, x_, (Set(x_) & Exist(f_, Set(f_) & (OrderedPair(x_, f_) *in_* R_))) >> (x_ *in_* Domain(R_))) @ (15, CLOSING, 14)
+
+with (((Set(x) & Set(y)) & (OrderedPair(x, y) *in_* R))) @ 16:
+    (Set(y) & (OrderedPair(x, y) *in_* R)) @ (17, TAUTOLOGY, 16)
+    Exist(f_, Set(f_) & (OrderedPair(x, f_) *in_* R)) @ (18, FOUND, y, 17)
+    (Set(x) & Exist(f_, Set(f_) & (OrderedPair(x, f_) *in_* R))) @ (19, TAUTOLOGY, 16, 18)
+    (x *in_* Domain(R)) @ (20, BY_THEOREM, 15, 19)
+((((Set(x) & Set(y)) & (OrderedPair(x, y) *in_* R))) >> (x *in_* Domain(R))) @ (21, DEDUCE)
+All(x_, y_, R_, (((Set(x_) & Set(y_)) & (OrderedPair(x_, y_) *in_* R_))) >> (x_ *in_* Domain(R_))) @ ("domain_condition", CLOSING, 21)
 
 # range
 clear()
@@ -1462,6 +1583,12 @@ with Function(F) @ 0:
 ((Function(F) & (x *in_* Domain(F))) >> (OrderedPair(x, F(x)) *in_* F)) @ (13, TAUTOLOGY, 12)
 All(F_, x_, (Function(F_) & (x_ *in_* Domain(F_))) >> (OrderedPair(x_, F_(x_)) *in_* F_)) @ ("structure_of_function", CLOSING, 13)
 
+# unique output
+clear()
+with Function(F) @ 0:
+    with Exist(y, OrderedPair(x, y) *in_* F) @ 1:
+        pass
+
 # cap
 clear()
 UniquelyExist(C, (All(x_, (x_ *in_* C) == ((x_ *in_* A) & (x_ *in_* B))))) @ (0, DEFINE_CLASS, C, x_, [], ((x_ *in_* A) & (x_ *in_* B)))
@@ -1475,10 +1602,10 @@ All(a_, (Set(a_) & (a_ != Empty())) >> Exist(u_, (u_ *in_* a) & ((u *cap* a) == 
 
 # image
 clear()
-UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, (a_ *in_* A) & (a_ == F(x_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, (a_ *in_* A) & (a_ == F(x_))))
-All(F_, A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, (a_ *in_* A_) & (a_ == F_(x_)))))) @ (1, CLOSING, 0)
+UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A) & (a_ *in_* Domain(F))) & (x_ == F(a_))))) @ (0, DEFINE_CLASS, C, x_, [], Exist(a_, ((a_ *in_* A) & (a_ *in_* Domain(F))) & (x_ == F(a_))))
+All(F_, A_, UniquelyExist(C, All(x_, (x_ *in_* C) == Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_)))))) @ (1, CLOSING, 0)
 Image = make_function("image")
-All(F_, A_, x_, (x_ *in_* F_[A_]) == Exist(a_, (a_ *in_* A_) & (a_ == F_(x_)))) @ ("image", DEFINE_FUNCTION, "image", 1)
+All(F_, A_, x_, (x_ *in_* F_[A_]) == Exist(a_, ((a_ *in_* A_) & (a_ *in_* Domain(F_))) & (x_ == F_(a_)))) @ ("image", DEFINE_FUNCTION, "image", 1)
 
 # replacement
 clear()
@@ -1530,3 +1657,283 @@ Exist(a_, (Set(a_) & (Empty() *in_* a_)) & All(x_, (x_ *in_* a_) >> Succ(a_))) @
 # choice
 clear()
 Exist(G_, Function(G_) & All(a_, (Set(a_) & Exist(x_, x_ *in_* a_)) >> (G_(a_) *in_* a_))) @ ("choice", AXIOM)
+
+# identity
+clear()
+UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_))))) @ (0, DEFINE_CLASS, D, x_, [], Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_))))
+All(A_, UniquelyExist(D, All(x_, (x_ *in_* D) == Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_)))))) @ (1, CLOSING, 0)
+Identity = make_function("identity")
+All(A_, x_, (x_ *in_* Identity(A_)) == Exist(a_, (a_ *in_* A_) & (x_ == OrderedPair(a_, a_)))) @ ("identity", DEFINE_FUNCTION, "identity", 1)
+
+# element of identity
+clear()
+with (x *in_* Identity(A)) @ 0:
+    ((x *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (1, BY_THEOREM, "identity")
+    Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_))) @ (2, TAUTOLOGY, 0, 1)
+    ((a *in_* A) & (x == OrderedPair(a, a))) @ (3, LET, a, 2)
+    (a *in_* A) @ (4, TAUTOLOGY, 3)
+    Exist(C_, a *in_* C_) @ (6, FOUND, A, 4)
+    (Set(a) == Exist(C_, a *in_* C_)) @ (5, BY_THEOREM, "set")
+    Set(a) @ (6, TAUTOLOGY, 5, 6)
+    ((Set(a) & Set(a)) & (x == OrderedPair(a, a))) @ (7, TAUTOLOGY, 3, 6)
+    Exist(b_, (Set(a) & Set(b_)) & (x == OrderedPair(a, b_))) @ (8, FOUND, a, 7)
+    Exist(a_, b_, (Set(a_) & Set(b_)) & (x == OrderedPair(a_, b_))) @ (9, FOUND, a, 8)
+    (Arity2(x) == Exist(a_, b_, (Set(a_) & Set(b_)) & (x == OrderedPair(a_, b_)))) @ (10, BY_THEOREM, "arity_2")
+    Arity2(x) @ (11, TAUTOLOGY, 9, 10)
+    ((Set(Left(x)) & Set(Right(x))) & (x == OrderedPair(Left(x), Right(x)))) @ (12, BY_THEOREM, "right", 11)
+    (x == OrderedPair(a, a)) @ (13, TAUTOLOGY, 3)
+    (x == OrderedPair(Left(x), Right(x))) @ (14, TAUTOLOGY, 12)
+    (OrderedPair(a, a) == OrderedPair(Left(x), Right(x))) @ (15, BY_EQUIVALENCE, 13, 14)
+    ((a == Left(x)) & (a == Right(x))) @ (16, BY_THEOREM, "comparison_of_ordered_pairs", 6, 12, 15)
+    (a == Left(x)) @ (17, TAUTOLOGY, 16)
+    (a == Right(x)) @ (18, TAUTOLOGY, 16)
+    (Left(x) == Right(x)) @ (19, BY_EQUIVALENCE, 17, 18)
+    ((Arity2(x) & (x == OrderedPair(Left(x), Right(x)))) & (Left(x) == Right(x))) @ (20, TAUTOLOGY, 19, 14, 11)
+((x *in_* Identity(A)) >> ((Arity2(x) & (x == OrderedPair(Left(x), Right(x)))) & (Left(x) == Right(x)))) @ (21, DEDUCE)
+All(A_, x_, (x_ *in_* Identity(A_)) >> ((Arity2(x_) & (x_ == OrderedPair(Left(x_), Right(x_)))) & (Left(x_) == Right(x_)))) @ ("element_of_identity", CLOSING, 21)
+
+# identity is relation
+clear()
+with (x *in_* Identity(A)) @ 0:
+    ((x *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_)))) @ (1, BY_THEOREM, "identity")
+    Exist(a_, (a_ *in_* A) & (x == OrderedPair(a_, a_))) @ (2, TAUTOLOGY, 0, 1)
+    ((a *in_* A) & (x == OrderedPair(a, a))) @ (3, LET, a, 2)
+    (a *in_* A) @ (4, TAUTOLOGY, 3)
+    Exist(C_, a *in_* C_) @ (5, FOUND, A, 4)
+    (Set(a) == Exist(C_, a *in_* C_)) @ (6, BY_THEOREM, "set")
+    Set(a) @ (7, TAUTOLOGY, 5, 6)
+    ((Set(a) & Set(a)) & (x == OrderedPair(a, a))) @ (8, TAUTOLOGY, 7, 3)
+    Exist(b_, (Set(a) & Set(b_)) & (x == OrderedPair(a, b_))) @ (9, FOUND, a, 8)
+    Exist(a_, b_, (Set(a_) & Set(b_)) & (x == OrderedPair(a_, b_))) @ (10, FOUND, a, 9)
+    (Arity2(x) == Exist(a_, b_, (Set(a_) & Set(b_)) & (x == OrderedPair(a_, b_)))) @ (11, BY_THEOREM, "arity_2")
+    Arity2(x) @ (12, TAUTOLOGY, 10, 11)
+((x *in_* Identity(A)) >> Arity2(x)) @ (13, DEDUCE)
+All(x_, (x_ *in_* Identity(A)) >> Arity2(x_)) @ (14, CLOSING, 13)
+(Relation(Identity(A)) == All(x_, (x_ *in_* Identity(A)) >> Arity2(x_))) @ (15, BY_THEOREM, "relation")
+Relation(Identity(A)) @ (16, TAUTOLOGY, 14, 15)
+All(A_, Relation(Identity(A_))) @ ("identity_is_relation", CLOSING, 16)
+
+# identity is function
+clear()
+Relation(Identity(A)) @ (10, BY_THEOREM, "identity_is_relation")
+with (((a *in_* Identity(A)) & (b *in_* Identity(A))) & (Left(a) == Left(b))) @ 0:
+    (a *in_* Identity(A)) @ (1, TAUTOLOGY, 0)
+    ((a *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (a == OrderedPair(a_, a_)))) @ (2, BY_THEOREM, "identity")
+    Exist(a_, (a_ *in_* A) & (a == OrderedPair(a_, a_))) @ (3, TAUTOLOGY, 1, 2)
+    ((u *in_* A) & (a == OrderedPair(u, u))) @ (4, LET, u, 3)
+    (u *in_* A) @ (5, TAUTOLOGY, 4)
+    Exist(C_, u *in_* C_) @ (6, FOUND, A, 5)
+    (Set(u) == Exist(C_, u *in_* C_)) @ (7, BY_THEOREM, "set")
+    Set(u) @ (8, TAUTOLOGY, 6, 7)
+    ((Relation(Identity(A)) == All(x_, (x_ *in_* Identity(A)) >> Arity2(x_)))) @ (11, BY_THEOREM, "relation")
+    All(x_, (x_ *in_* Identity(A)) >> Arity2(x_)) @ (12, TAUTOLOGY, 11, 10)
+    Arity2(a) @ (13, BY_THEOREM, 12, 1)
+    ((Set(Left(a)) & Set(Right(a))) & (a == OrderedPair(Left(a), Right(a)))) @ (14, BY_THEOREM, "right", 13)
+    (a == OrderedPair(u, u)) @ (15, TAUTOLOGY, 4)
+    (a == OrderedPair(Left(a), Right(a))) @ (36, TAUTOLOGY, 14)
+    (OrderedPair(u, u) == OrderedPair(Left(a), Right(a))) @ (17, BY_EQUIVALENCE, 15, 36)
+    (Set(u) & Set(Left(a)) & Set(Right(a))) @ (18, TAUTOLOGY, 14, 8)
+    ((u == Left(a)) & (u == Right(a))) @ (19, BY_THEOREM, "comparison_of_ordered_pairs", 18, 17)
+    (u == Left(a)) @ (20, TAUTOLOGY, 19)
+    (u == Right(a)) @ (21, TAUTOLOGY, 19)
+    (Left(a) == Right(a)) @ (30, BY_EQUIVALENCE, 20, 21)
+
+    (b *in_* Identity(A)) @ (1, TAUTOLOGY, 0)
+    ((b *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (b == OrderedPair(a_, a_)))) @ (2, BY_THEOREM, "identity")
+    Exist(a_, (a_ *in_* A) & (b == OrderedPair(a_, a_))) @ (3, TAUTOLOGY, 1, 2)
+    ((v *in_* A) & (b == OrderedPair(v, v))) @ (4, LET, v, 3)
+    (v *in_* A) @ (5, TAUTOLOGY, 4)
+    Exist(C_, v *in_* C_) @ (6, FOUND, A, 5)
+    (Set(v) == Exist(C_, v *in_* C_)) @ (7, BY_THEOREM, "set")
+    Set(v) @ (8, TAUTOLOGY, 6, 7)
+    ((Relation(Identity(A)) == All(x_, (x_ *in_* Identity(A)) >> Arity2(x_)))) @ (11, BY_THEOREM, "relation")
+    All(x_, (x_ *in_* Identity(A)) >> Arity2(x_)) @ (12, TAUTOLOGY, 11, 10)
+    Arity2(b) @ (13, BY_THEOREM, 12, 1)
+    (((Set(Left(b))) & Set(Right(b))) & (b == OrderedPair(Left(b), Right(b)))) @ (14, BY_THEOREM, "right", 13)
+    (b == OrderedPair(v, v)) @ (15, TAUTOLOGY, 4)
+    (b == OrderedPair(Left(b), Right(b))) @ (16, TAUTOLOGY, 14)
+    (OrderedPair(v, v) == OrderedPair(Left(b), Right(b))) @ (17, BY_EQUIVALENCE, 15, 16)
+    (Set(v) & Set(Left(b)) & Set(Right(b))) @ (18, TAUTOLOGY, 14, 8)
+    ((v == Left(b)) & (v == Right(b))) @ (19, BY_THEOREM, "comparison_of_ordered_pairs", 18, 17)
+    (v == Left(b)) @ (20, TAUTOLOGY, 19)
+    (v == Right(b)) @ (21, TAUTOLOGY, 19)
+    (Left(b) == Right(b)) @ (22, BY_EQUIVALENCE, 20, 21)
+
+    (Left(a) == Left(b)) @ (23, TAUTOLOGY, 0)
+    (Right(a) == Right(b)) @ (24, BY_EQUIVALENCE, 23, 22, 30)
+    
+    (a == OrderedPair(Left(b), Right(a))) @ (40, REPLACE, 36, 23)
+    (a == OrderedPair(Left(b), Right(b))) @ (41, REPLACE, 40, 24)
+    (a == b) @ (42, BY_EQUIVALENCE, 16, 41)
+
+((((a *in_* Identity(A)) & (b *in_* Identity(A))) & (Left(a) == Left(b))) >> (a == b)) @ (43, DEDUCE)
+All(A_, a_, b_, ((((a_ *in_* Identity(A_)) & (b_ *in_* Identity(A_))) & (Left(a_) == Left(b_))) >> (a_ == b_))) @ (44, CLOSING, 43)
+
+All(a_, b_, ((((a_ *in_* Identity(A)) & (b_ *in_* Identity(A))) & (Left(a_) == Left(b_))) >> (a_ == b_))) @ (45, PUT, A, 44)
+Relation(Identity(A)) @ (46, PUT, A, "identity_is_relation")
+(Relation(Identity(A)) & All(a_, b_, (((a_ *in_* Identity(A)) & (b_ *in_* Identity(A))) & (Left(a_) == Left(b_))) >> (a_ == b_))) @ (47, TAUTOLOGY, 45, 46)
+(Function(Identity(A)) == (Relation(Identity(A)) & All(a_, b_, (((a_ *in_* Identity(A)) & (b_ *in_* Identity(A))) & (Left(a_) == Left(b_))) >> (a_ == b_)))) @ (48, BY_THEOREM, "function")
+Function(Identity(A)) @ (49, TAUTOLOGY, 48, 47)
+All(A_, Function(Identity(A_))) @ ("identity_is_function", CLOSING, 49)
+
+# domain of identity
+clear()
+with (x *in_* Domain(Identity(A))) @ 0:
+    ((x *in_* Domain(Identity(A))) == Exist(y_, ((y_ *in_* Identity(A)) & Arity2(y_)) & (Left(y_) == x))) @ (1, BY_THEOREM, "domain")
+    Exist(y_, ((y_ *in_* Identity(A)) & Arity2(y_)) & (Left(y_) == x)) @ (2, TAUTOLOGY, 0, 1)
+    (((y *in_* Identity(A)) & Arity2(y)) & (Left(y) == x)) @ (3, LET, y, 2)
+    (y *in_* Identity(A)) @ (4, TAUTOLOGY, 3)
+    ((y *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (y == OrderedPair(a_, a_)))) @ (5, BY_THEOREM, "identity")
+    Exist(a_, (a_ *in_* A) & (y == OrderedPair(a_, a_))) @ (6, TAUTOLOGY, 4, 5)
+    ((a *in_* A) & (y == OrderedPair(a, a))) @ (7, LET, a, 6)
+    (a *in_* A) @ (8, TAUTOLOGY, 7)
+    Set(a) @ (9, PUT_THEOREM, "set_condition", A, 8)
+    (a == Left(OrderedPair(a, a))) @ (10, BY_THEOREM, "left_of_ordered_pair", 9)
+    (y == OrderedPair(a, a)) @ (11, TAUTOLOGY, 7)
+    (a == Left(y)) @ (12, REPLACE, 10, 11)
+    (Left(y) == x) @ (13, TAUTOLOGY, 3)
+    (a == x) @ (14, BY_EQUIVALENCE, 12, 13)
+    (x *in_* A) @ (15, REPLACE, 8, 14)
+((x *in_* Domain(Identity(A))) >> (x *in_* A)) @ (16, DEDUCE)
+
+with (x *in_* A) @ 17:
+    Set(x) @ (18, PUT_THEOREM, "set_condition", A, 17)
+    (OrderedPair(x, x) == OrderedPair(x, x)) @ (19, BY_EQUIVALENCE)
+    ((x *in_* A) & (OrderedPair(x, x) == OrderedPair(x, x))) @ (20, TAUTOLOGY, 19, 17)
+    Exist(a_, (a_ *in_* A) & (OrderedPair(x, x) == OrderedPair(a_, a_))) @ (21, FOUND, x, 20)
+    ((OrderedPair(x, x) *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (OrderedPair(x, x) == OrderedPair(a_, a_)))) @ (22, BY_THEOREM, "identity")
+    (OrderedPair(x, x) *in_* Identity(A)) @ (23, TAUTOLOGY, 21, 22)
+    (x *in_* Domain(Identity(A))) @ (24, PUT_THEOREM, "domain_condition", x, 23, 18)
+((x *in_* A) >> (x *in_* Domain(Identity(A)))) @ (25, DEDUCE)
+
+((x *in_* A) == (x *in_* Domain(Identity(A)))) @ (26, TAUTOLOGY, 16, 25)
+All(x_, (x_ *in_* A) == (x_ *in_* Domain(Identity(A)))) @ (27, CLOSING, 26)
+(A == Domain(Identity(A))) @ (28, BY_THEOREM, "extensionality", 27)
+All(A_, A_ == Domain(Identity(A_))) @ ("domain_of_identity", CLOSING, 28)
+
+# put condition
+clear()
+with (Set(x) & Set(y)) @ 0:
+    with (Function(F) & (OrderedPair(x, y) *in_* F)) @ 1:
+        (OrderedPair(x, y) *in_* F) @ (2, TAUTOLOGY, 1)
+        (x *in_* Domain(F)) @ (3, PUT_THEOREM, "domain_condition", y, 0, 2)
+        (((FindPair(F, x) *in_* F) & Arity2(FindPair(F, x))) & (Left(FindPair(F, x)) == x)) @ (4, BY_THEOREM, "find_pair", 3, 1)
+        (x == Left(OrderedPair(x, y))) @ (5, BY_THEOREM, "left_of_ordered_pair", 0)
+        (Left(FindPair(F, x)) == x) @ (6, TAUTOLOGY, 4)
+        (Left(FindPair(F, x)) == Left(OrderedPair(x, y))) @ (7, BY_EQUIVALENCE, 6, 5)
+        (FindPair(F, x) *in_* F) @ (8, TAUTOLOGY, 4)
+        (Function(F) == (Relation(F) & All(a_, b_, (((a_ *in_* F) & (b_ *in_* F)) & (Left(a_) == Left(b_))) >> (a_ == b_)))) @ (9, BY_THEOREM, "function")
+        All(a_, b_, (((a_ *in_* F) & (b_ *in_* F)) & (Left(a_) == Left(b_))) >> (a_ == b_)) @ (10, TAUTOLOGY, 9, 1)
+        (FindPair(F, x) == OrderedPair(x, y)) @ (11, BY_THEOREM, 10, 2, 8, 7)
+        (y == Right(OrderedPair(x, y))) @ (12, BY_THEOREM, "right_of_ordered_pair", 0)
+        (y == Right(FindPair(F, x))) @ (13, REPLACE, 12, 11)
+        (F(x) == Right(FindPair(F, x))) @ (14, BY_THEOREM, "put")
+        (y == F(x)) @ (15, REPLACE, 13, 14)
+    ((Function(F) & (OrderedPair(x, y) *in_* F)) >> (y == F(x))) @ (16, DEDUCE)
+((Set(x) & Set(y)) >> ((Function(F) & (OrderedPair(x, y) *in_* F)) >> (y == F(x)))) @ (17, DEDUCE)
+(((Set(x) & Set(y)) & (Function(F) & (OrderedPair(x, y) *in_* F))) >> (y == F(x))) @ (18, TAUTOLOGY, 17)
+All(x_, y_, F_, ((Set(x_) & Set(y_)) & (Function(F_) & (OrderedPair(x_, y_) *in_* F_))) >> (y_ == F_(x_))) @ ("put_condition", CLOSING, 18)
+
+# identity output
+clear()
+with (a *in_* A) @ 0:
+    All(x_, (x_ *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (x_ == OrderedPair(a_, a_)))) @ (1, PUT, A, "identity")
+    ((OrderedPair(a, a) *in_* Identity(A)) == Exist(a_, (a_ *in_* A) & (OrderedPair(a, a) == OrderedPair(a_, a_)))) @ (2, PUT, OrderedPair(a, a), 1)
+    (OrderedPair(a, a) == OrderedPair(a, a)) @ (3, BY_EQUIVALENCE)
+    ((a *in_* A) & (OrderedPair(a, a) == OrderedPair(a, a))) @ (6, TAUTOLOGY, 0, 3)
+    Exist(a_, (a_ *in_* A) & (OrderedPair(a, a) == OrderedPair(a_, a_))) @ (4, FOUND, a, 6)
+    (OrderedPair(a, a) *in_* Identity(A)) @ (5, TAUTOLOGY, 2, 4)
+    Function(Identity(A)) @ (6, BY_THEOREM, "identity_is_function")
+    Set(a) @ (7, PUT_THEOREM, "set_condition", A, 0)
+    (a == Identity(A)(a)) @ (8, BY_THEOREM, "put_condition", 5, 7, 6)
+((a *in_* A) >> (a == Identity(A)(a))) @ (9, DEDUCE)
+All(a_, A_, (a_ *in_* A_) >> (a_ == Identity(A_)(a_))) @ ("identity_output", CLOSING, 9)
+
+# image of identity
+clear()
+with (x *in_* Identity(A)[B]) @ 0:
+    ((x *in_* Identity(A)[B]) == Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_)))) @ (1, BY_THEOREM, "image")
+    Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))) @ (2, TAUTOLOGY, 0, 1)
+    (((a *in_* B) & (a *in_* Domain(Identity(A)))) & (x == Identity(A)(a))) @ (3, LET, a, 2)
+    
+    (a *in_* B) @ (4, TAUTOLOGY, 3)
+    (a *in_* Domain(Identity(A))) @ (5, TAUTOLOGY, 3)
+    (x == Identity(A)(a)) @ (6, TAUTOLOGY, 3)
+
+    (A == Domain(Identity(A))) @ (7, BY_THEOREM, "domain_of_identity")
+    (a *in_* A) @ (8, REPLACE, 5, 7)
+    (a == Identity(A)(a)) @ (9, BY_THEOREM, "identity_output", 8)
+    (x == a) @ (10, REPLACE, 6, 9)
+
+    (x *in_* B) @ (11, REPLACE, 4, 10)
+    (x *in_* A) @ (12, REPLACE, 8, 10)
+    ((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (13, BY_THEOREM, "cap")
+    (x *in_* (A *cap* B)) @ (14, TAUTOLOGY, 13, 11, 12)
+((x *in_* Identity(A)[B]) >> (x *in_* (A *cap* B))) @ (15, DEDUCE)
+
+with (x *in_* (A *cap* B)) @ 16:
+    ((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (17, BY_THEOREM, "cap")
+    (x *in_* A) @ (18, TAUTOLOGY, 16, 17)
+    (x *in_* B) @ (19, TAUTOLOGY, 16, 17)
+    ((x *in_* Identity(A)[B]) == Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_)))) @ (20, BY_THEOREM, "image")
+
+    (A == Domain(Identity(A))) @ (21, BY_THEOREM, "domain_of_identity")
+    (x *in_* Domain(Identity(A))) @ (22, REPLACE, 18, 21)
+
+    (x == Identity(A)(x)) @ (23, BY_THEOREM, "identity_output", 18)
+    (((x *in_* B) & (x *in_* Domain(Identity(A)))) & (x == Identity(A)(x))) @ (24, TAUTOLOGY, 19, 22, 23)
+    Exist(a_, ((a_ *in_* B) & (a_ *in_* Domain(Identity(A)))) & (x == Identity(A)(a_))) @ (25, FOUND, x, 24)
+    (x *in_* Identity(A)[B]) @ (26, TAUTOLOGY, 25, 20)
+((x *in_* (A *cap* B)) >> (x *in_* Identity(A)[B])) @ (27, DEDUCE)
+
+((x *in_* Identity(A)[B]) == (x *in_* (A *cap* B))) @ (28, TAUTOLOGY, 27, 15)
+All(x_, (x_ *in_* Identity(A)[B]) == (x_ *in_* (A *cap* B))) @ (29, CLOSING, 28)
+(Identity(A)[B] == (A *cap* B)) @ (30, BY_THEOREM, "extensionality", 29)
+All(A_, B_, Identity(A_)[B_] == (A_ *cap* B_)) @ ("image_of_identity", CLOSING, 30)
+
+# element of subset
+clear()
+with ((x *in_* A) & (A *inc* B)) @ 0:
+    (x *in_* A) @ (1, TAUTOLOGY, 0)
+    (A *inc* B) @ (2, TAUTOLOGY, 0)
+    ((A *inc* B) == All(x_, (x_ *in_* A) >> (x_ *in_* B))) @ (3, BY_THEOREM, "inclusion")
+    All(x_, (x_ *in_* A) >> (x_ *in_* B)) @ (4, TAUTOLOGY, 3, 2)
+    ((x *in_* A) >> (x *in_* B)) @ (5, PUT, x, 4)
+    (x *in_* B) @ (6, TAUTOLOGY, 5, 1)
+(((x *in_* A) & (A *inc* B)) >> (x *in_* B)) @ (7, DEDUCE)
+All(A_, B_, x_, ((x_ *in_* A_) & (A_ *inc* B_)) >> (x_ *in_* B_)) @ ("element_of_subset", CLOSING, 7)
+
+# cap subset
+clear()
+with (A *inc* B) @ 0:
+    with (x *in_* (A *cap* B)) @ 1:
+        ((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (2, BY_THEOREM, "cap")
+        (x *in_* A) @ (3, TAUTOLOGY, 1, 2)
+    ((x *in_* (A *cap* B)) >> (x *in_* A)) @ (4, DEDUCE)
+    with (x *in_* A) @ 5:
+        (x *in_* B) @ (6, PUT_THEOREM, "element_of_subset", A, 5, 0)
+        ((x *in_* (A *cap* B)) == ((x *in_* A) & (x *in_* B))) @ (7, BY_THEOREM, "cap")
+        (x *in_* (A *cap* B)) @ (8, TAUTOLOGY, 5, 6, 7)
+    ((x *in_* A) >> (x *in_* (A *cap* B))) @ (8, DEDUCE)
+    ((x *in_* (A *cap* B)) == (x *in_* A)) @ (9, TAUTOLOGY, 4, 8)
+    All(x_, (x_ *in_* (A *cap* B)) == (x_ *in_* A)) @ (10, CLOSING, 9)
+    ((A *cap* B) == A) @ (11, BY_THEOREM, "extensionality", 10)
+((A *inc* B) >> ((A *cap* B) == A)) @ (12, DEDUCE)
+All(A_, B_, (A_ *inc* B_) >> ((A_ *cap* B_) == A_)) @ ("cap_subset", CLOSING, 12)
+
+# separation
+clear()
+with ((a *inc* b) & Set(b)) @ 0:
+    (a *inc* b) @ (1, TAUTOLOGY, 0)
+    Set(b) @ (2, TAUTOLOGY, 0)
+
+    Function(Identity(a)) @ (3, BY_THEOREM, "identity_is_function")
+    Set(Identity(a)[b]) @ (4, BY_THEOREM, "replacement", 3, 2)
+
+    (Identity(a)[b] == (a *cap* b)) @ (5, BY_THEOREM, "image_of_identity")
+    ((a *cap* b) == a) @ (6, BY_THEOREM, "cap_subset", 1)
+    (a == Identity(a)[b]) @ (7, BY_EQUIVALENCE, 5, 6)
+
+    Set(a) @ (8, REPLACE, 4, 7)
+(((a *inc* b) & Set(b)) >> Set(a)) @ (9, DEDUCE)
+All(a_, b_, ((a_ *inc* b_) & Set(b_)) >> Set(a_)) @ ("separation", CLOSING, 9)
